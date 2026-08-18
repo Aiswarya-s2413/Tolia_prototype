@@ -1,0 +1,116 @@
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+from .models import Document, DocumentChunk, ChatLog, Department, DocumentCategory
+from .serializers import DocumentSerializer, ChatLogSerializer
+from .rag_engine import LocalRAGEngine
+
+class ChatAPIView(APIView):
+    def post(self, request):
+        query = request.data.get('query', '').strip()
+        user_role = request.data.get('user_role', Department.CEO)
+        target_lang = request.data.get('language', None)
+
+        if not query:
+            return Response({'error': 'Query text is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Execute RAG query with RBAC security filter
+        rag_result = LocalRAGEngine.query(user_query=query, user_role=user_role, target_lang=target_lang)
+
+        # Save query log to database
+        chat_log = ChatLog.objects.create(
+            user_role=user_role,
+            query=query,
+            language=rag_result['language'],
+            response=rag_result['response'],
+            sources_used=rag_result['sources'],
+            access_blocked=rag_result['access_blocked']
+        )
+
+        return Response({
+            'id': chat_log.id,
+            'query': query,
+            'user_role': user_role,
+            'language': rag_result['language'],
+            'response': rag_result['response'],
+            'sources': rag_result['sources'],
+            'access_blocked': rag_result['access_blocked'],
+            'timestamp': chat_log.created_at
+        })
+
+class DocumentListCreateView(APIView):
+    def get(self, request):
+        user_role = request.query_params.get('role', Department.CEO)
+        if user_role == Department.CEO:
+            docs = Document.objects.all().order_by('-uploaded_at')
+        else: # QC
+            docs = Document.objects.filter(required_department=Department.QC).order_by('-uploaded_at')
+            
+        serializer = DocumentSerializer(docs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        title = request.data.get('title')
+        category = request.data.get('category', DocumentCategory.GENERAL_SAFETY)
+        required_department = request.data.get('required_department', Department.QC)
+        content = request.data.get('content')
+        is_confidential = request.data.get('is_confidential', False)
+
+        if not title or not content:
+            return Response({'error': 'Title and content are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        doc = Document.objects.create(
+            title=title,
+            category=category,
+            required_department=required_department,
+            content=content,
+            is_confidential=is_confidential
+        )
+
+        # Chunking & Vector Embedding Generation (150 words per chunk)
+        words = content.split()
+        chunk_size = 150
+        for i in range(0, len(words), chunk_size):
+            chunk_text = " ".join(words[i:i+chunk_size])
+            chunk_vector = LocalRAGEngine.get_embedding(chunk_text)
+            DocumentChunk.objects.create(
+                document=doc,
+                chunk_index=i // chunk_size,
+                text=chunk_text,
+                embedding=chunk_vector,
+                required_department=required_department
+            )
+
+        serializer = DocumentSerializer(doc)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+class UserRoleView(APIView):
+    def get(self, request):
+        roles = [
+            {
+                'code': Department.CEO,
+                'name': 'Chief Executive Officer (CEO)',
+                'description': 'Full unrestricted access across all plant documents, reports & sales targets.',
+                'can_access_sales': True
+            },
+            {
+                'code': Department.QC,
+                'name': 'Quality Control Inspector (QC)',
+                'description': 'Access to Quality Control, Safety & Operational SOPs. Restricted from confidential sales data.',
+                'can_access_sales': False
+            }
+        ]
+        return Response(roles)
+
+class SeedDataView(APIView):
+    def post(self, request):
+        """Clear all existing documents and chat logs from the local database."""
+        deleted_docs = Document.objects.all().delete()[0]
+        deleted_chunks = DocumentChunk.objects.all().delete()[0]
+        ChatLog.objects.all().delete()
+
+        return Response({
+            'message': f'Successfully cleared database. Removed {deleted_docs} documents and {deleted_chunks} chunks.',
+            'count': 0
+        })
