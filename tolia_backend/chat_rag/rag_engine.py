@@ -58,8 +58,8 @@ def normalize_voice_query(query_text):
     
     # Common speech-to-text misrecognitions for plant terms
     replacements = [
-        (r'\b(ppa|p\.p\.e|p p e|pee pee ee|pp e|pepe)\b', 'ppe'),
-        (r'\b(plan|plnt)\b', 'plant'),
+        (r'\b(pps|ppa|ppe|pp is|pp\b|p\.p\.e|p p e|pee pee ee|pp e|pepe)\b', 'ppe'),
+        (r'\b(plan|plnt|pln)\b', 'plant'),
         (r'\b(farnace|furnas|furness|firnace)\b', 'furnace'),
         (r'\b(blast farnace|blast furnas)\b', 'blast furnace'),
         (r'\b(sut down|shut down|shuting down|shutting down)\b', 'shutdown'),
@@ -67,7 +67,7 @@ def normalize_voice_query(query_text):
         (r'\b(rolin|rooling|roling)\b', 'rolling'),
         (r'\b(gear box)\b', 'gearbox'),
         (r'\b(hidraulic|hydralic|hydroulic)\b', 'hydraulic'),
-        (r'\b(safty|saftey|safe req|safeties)\b', 'safety'),
+        (r'\b(safty|saftey|safe req|safeties|safety)\b', 'safety'),
         (r'\b(temprature|temperatue|temp)\b', 'temperature'),
         (r'\b(helmit|halmet)\b', 'helmet'),
         (r'\b(corosion|corrosive)\b', 'corrosion'),
