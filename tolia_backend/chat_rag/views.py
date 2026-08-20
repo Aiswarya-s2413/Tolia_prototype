@@ -114,3 +114,25 @@ class SeedDataView(APIView):
             'message': f'Successfully cleared database. Removed {deleted_docs} documents and {deleted_chunks} chunks.',
             'count': 0
         })
+
+class VoiceTranscribeView(APIView):
+    """Local Speech-to-Text (STT) endpoint using faster-whisper / local Indic speech models."""
+    def post(self, request):
+        audio_file = request.FILES.get('audio')
+        language = request.data.get('language', 'en')
+        
+        if not audio_file:
+            return Response({'error': 'Audio file is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from .voice_service import LocalSTTService
+        audio_bytes = audio_file.read()
+        result = LocalSTTService.transcribe_audio(audio_bytes, language=language)
+        
+        if result.get('success'):
+            return Response({
+                'text': result['text'],
+                'language': result.get('language', language)
+            })
+        else:
+            return Response({'error': result.get('error', 'Transcription failed')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+

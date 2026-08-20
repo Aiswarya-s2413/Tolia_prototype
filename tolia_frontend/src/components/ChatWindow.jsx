@@ -97,29 +97,82 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   }, [lang]);
 
-  const toggleListening = () => {
-    if (!recognitionRef.current) {
-      alert(
-        lang === 'hi'
-          ? 'आपका ब्राउज़र वॉयस इनपुट का समर्थन नहीं करता है।'
-          : lang === 'mr'
-          ? 'तुमचा ब्राउझर व्हॉईस इनपुटला सपोर्ट करत नाही.'
-          : 'Speech recognition is not supported in this browser. Please use Chrome or Edge.'
-      );
-      return;
-    }
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
-    if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-    } else {
-      recognitionRef.current.lang = getLangCode(lang);
-      try {
+  const startLocalAudioRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        // Stop audio tracks
+        stream.getTracks().forEach(track => track.stop());
+        
+        if (audioBlob.size > 0) {
+          setIsLoading(true);
+          try {
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'speech.webm');
+            formData.append('language', lang);
+
+            const res = await fetch('/api/voice/transcribe/', {
+              method: 'POST',
+              body: formData
+            });
+
+            if (res.ok) {
+              const data = await res.json();
+              if (data.text && data.text.trim()) {
+                setInputQuery(data.text);
+                handleSendMessage(data.text);
+                setIsLoading(false);
+                return;
+              }
+            }
+          } catch (err) {
+            console.error('Local STT API error, falling back:', err);
+          }
+          setIsLoading(false);
+        }
+      };
+
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setIsListening(true);
+    } catch (e) {
+      console.warn("Microphone direct access failed, using browser speech fallback:", e);
+      if (recognitionRef.current) {
+        recognitionRef.current.lang = getLangCode(lang);
         recognitionRef.current.start();
         setIsListening(true);
-      } catch (e) {
-        console.error("Speech recognition start failed:", e);
       }
+    }
+  };
+
+  const stopLocalAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch(e) {}
+    }
+    setIsListening(false);
+  };
+
+  const toggleListening = () => {
+    if (isListening) {
+      stopLocalAudioRecording();
+    } else {
+      startLocalAudioRecording();
     }
   };
 
