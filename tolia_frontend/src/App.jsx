@@ -2,12 +2,9 @@ import React, { useState } from 'react';
 import Header from './components/Header';
 import RoleSwitcher from './components/RoleSwitcher';
 import ChatWindow from './components/ChatWindow';
-import DocumentManager from './components/DocumentManager';
-import SecurityMatrix from './components/SecurityMatrix';
-import { ShieldCheck, Cpu, Database, Activity, Lock, ExternalLink } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'docs' | 'security'
   const [activeRole, setActiveRole] = useState('CEO'); // 'CEO' | 'QC'
   const [lang, setLang] = useState('en'); // 'en' | 'hi' | 'mr'
 
@@ -20,41 +17,18 @@ export default function App() {
 
       {/* Top Application Header */}
       <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
         activeRole={activeRole}
         setRole={setActiveRole}
         lang={lang}
         setLang={setLang}
       />
 
-      {/* Main Container Viewport */}
+      {/* Main Container Viewport - Voice AI Assistant */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        
-        {/* TAB 1: AI Assistant View */}
-        {activeTab === 'chat' && (
-          <div className="space-y-6">
-            <RoleSwitcher activeRole={activeRole} setRole={setActiveRole} lang={lang} />
-            <ChatWindow activeRole={activeRole} lang={lang} />
-          </div>
-        )}
-
-        {/* TAB 2: Knowledge Base View */}
-        {activeTab === 'docs' && (
-          <div className="space-y-6">
-            <RoleSwitcher activeRole={activeRole} setRole={setActiveRole} lang={lang} />
-            <DocumentManager activeRole={activeRole} lang={lang} />
-          </div>
-        )}
-
-        {/* TAB 3: RBAC Security Matrix View */}
-        {activeTab === 'security' && (
-          <div className="space-y-6">
-            <RoleSwitcher activeRole={activeRole} setRole={setActiveRole} lang={lang} />
-            <SecurityMatrix activeRole={activeRole} setRole={setActiveRole} lang={lang} />
-          </div>
-        )}
-
+        <div className="space-y-6">
+          <RoleSwitcher activeRole={activeRole} setRole={setActiveRole} lang={lang} />
+          <ChatWindow activeRole={activeRole} lang={lang} />
+        </div>
       </main>
 
       {/* Standard Enterprise Footer */}
@@ -64,7 +38,7 @@ export default function App() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
             <span className="font-medium text-slate-300">
-              Steel Plant AI RAG System — Protected by Department Security Policy (RBAC)
+              Steel Plant AI Voice RAG System — Protected by Department Security Policy (RBAC)
             </span>
           </div>
 

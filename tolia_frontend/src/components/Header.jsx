@@ -62,45 +62,6 @@ export default function Header({ activeTab, setActiveTab, activeRole, setRole, l
             </div>
           </div>
 
-          {/* Navigation View Tabs */}
-          <nav className="hidden md:flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
-            <button
-              onClick={() => setActiveTab('chat')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'chat'
-                  ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5 text-cyan-300" />
-              <span>{getNavTitle('chat')}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('docs')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'docs'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <Database className="w-3.5 h-3.5" />
-              <span>{getNavTitle('docs')}</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('security')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'security'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>{getNavTitle('security')}</span>
-            </button>
-          </nav>
-
           {/* Right Action Controls: Role Switcher + Language Selector */}
           <div className="flex items-center gap-2.5">
             
@@ -149,41 +110,8 @@ export default function Header({ activeTab, setActiveTab, activeRole, setRole, l
 
           </div>
         </div>
-
-        {/* Mobile Subnav Bar */}
-        <div className="flex md:hidden items-center justify-around py-2 border-t border-slate-800/80">
-          <button
-            onClick={() => setActiveTab('chat')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold ${
-              activeTab === 'chat' ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40' : 'text-slate-400'
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>Assistant</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('docs')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold ${
-              activeTab === 'docs' ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40' : 'text-slate-400'
-            }`}
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span>Knowledge Base</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('security')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold ${
-              activeTab === 'security' ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40' : 'text-slate-400'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Security Matrix</span>
-          </button>
-        </div>
-
       </div>
     </header>
   );
 }
+
