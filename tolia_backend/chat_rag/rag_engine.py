@@ -52,9 +52,38 @@ def clean_doc_title(title, target_lang):
         return cleaned.strip()
     return title
 
+def normalize_voice_query(query_text):
+    """Normalize common voice STT phonetic mis-recognitions for industrial plant terms."""
+    normalized = query_text.lower()
+    
+    # Common speech-to-text misrecognitions for plant terms
+    replacements = [
+        (r'\b(ppa|p\.p\.e|p p e|pee pee ee|pp e|pepe)\b', 'ppe'),
+        (r'\b(plan|plnt)\b', 'plant'),
+        (r'\b(farnace|furnas|furness|firnace)\b', 'furnace'),
+        (r'\b(blast farnace|blast furnas)\b', 'blast furnace'),
+        (r'\b(sut down|shut down|shuting down|shutting down)\b', 'shutdown'),
+        (r'\b(emergeny|emergancy|emegency)\b', 'emergency'),
+        (r'\b(rolin|rooling|roling)\b', 'rolling'),
+        (r'\b(gear box)\b', 'gearbox'),
+        (r'\b(hidraulic|hydralic|hydroulic)\b', 'hydraulic'),
+        (r'\b(safty|saftey|safe req|safeties)\b', 'safety'),
+        (r'\b(temprature|temperatue|temp)\b', 'temperature'),
+        (r'\b(helmit|halmet)\b', 'helmet'),
+        (r'\b(corosion|corrosive)\b', 'corrosion'),
+        (r'\b(hardnes|rockwel|rokwell)\b', 'hardness')
+    ]
+    
+    for pattern, repl in replacements:
+        normalized = re.sub(pattern, repl, normalized)
+        
+    return normalized
+
 def score_chunk_relevance(query, chunk):
     """Calculate relevance score between query and document chunk using term matching and title weighting."""
-    query_words = set(re.findall(r'\w+', query.lower()))
+    norm_query = normalize_voice_query(query)
+    query_words = set(re.findall(r'\w+', norm_query.lower()))
+    
     # Stop words
     stop_words = {'what', 'is', 'are', 'the', 'for', 'and', 'in', 'of', 'to', 'a', 'an', 'how', 'kya', 'hai', 'ka', 'ke', 'ki', 'ko', 'me'}
     keywords = [w for w in query_words if w not in stop_words and len(w) > 2]
@@ -69,26 +98,26 @@ def score_chunk_relevance(query, chunk):
     score = 0.0
     for kw in keywords:
         if kw in doc_title_lower:
-            score += 5.0
+            score += 6.0
         if kw in category_lower:
-            score += 3.0
-        # Count occurrences in chunk text
+            score += 4.0
         count = chunk_text_lower.count(kw)
         score += count * 1.5
 
     # Specific steel plant synonym boost
-    if ('blast' in query.lower() or 'furnace' in query.lower() or 'फर्नेस' in query or 'ब्लास्ट' in query) and 'blast furnace' in doc_title_lower:
+    q_norm_lower = norm_query.lower()
+    if ('blast' in q_norm_lower or 'furnace' in q_norm_lower or 'फर्नेस' in query or 'ब्लास्ट' in query) and 'blast furnace' in doc_title_lower:
+        score += 20.0
+    if ('shutdown' in q_norm_lower or 'emergency' in q_norm_lower or 'आपातकालीन' in query) and 'emergency' in chunk_text_lower:
         score += 15.0
-    if ('shutdown' in query.lower() or 'emergency' in query.lower() or 'आपातकालीन' in query) and 'emergency' in chunk_text_lower:
-        score += 10.0
-    if ('rolling' in query.lower() or 'gearbox' in query.lower() or 'hydraulic' in query.lower() or 'रोलिंग' in query) and 'rolling mill' in doc_title_lower:
-        score += 15.0
-    if ('ppe' in query.lower() or 'safety' in query.lower() or 'helmet' in query.lower() or 'सुरक्षा' in query) and 'safety' in doc_title_lower:
-        score += 15.0
-    if ('hardness' in query.lower() or 'testing' in query.lower() or 'hrc' in query.lower() or 'rockwell' in query.lower()) and 'quality' in doc_title_lower:
-        score += 15.0
-    if ('sales' in query.lower() or 'revenue' in query.lower() or 'target' in query.lower() or 'बिक्री' in query) and 'sales' in doc_title_lower:
-        score += 15.0
+    if ('rolling' in q_norm_lower or 'gearbox' in q_norm_lower or 'hydraulic' in q_norm_lower or 'रोलिंग' in query) and 'rolling mill' in doc_title_lower:
+        score += 20.0
+    if ('ppe' in q_norm_lower or 'safety' in q_norm_lower or 'helmet' in q_norm_lower or 'सुरक्षा' in query or 'safe' in q_norm_lower) and 'safety' in doc_title_lower:
+        score += 20.0
+    if ('hardness' in q_norm_lower or 'testing' in q_norm_lower or 'hrc' in q_norm_lower or 'rockwell' in q_norm_lower) and 'quality' in doc_title_lower:
+        score += 20.0
+    if ('sales' in q_norm_lower or 'revenue' in q_norm_lower or 'target' in q_norm_lower or 'बिक्री' in query) and 'sales' in doc_title_lower:
+        score += 20.0
 
     return score
 
@@ -246,7 +275,7 @@ class LocalRAGEngine:
             
         best_doc = chunks[0].document
         title = clean_doc_title(best_doc.title, lang)
-        q_lower = query.lower()
+        q_lower = normalize_voice_query(query).lower()
 
         # 1. Blast Furnace Emergency & Temperature
         if "blast" in q_lower or "furnace" in q_lower or "ब्लास्ट" in query or "फर्नेस" in query or "shutdown" in q_lower or "emergency" in q_lower:
