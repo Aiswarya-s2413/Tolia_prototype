@@ -205,17 +205,25 @@ export default function ChatWindow({ activeRole, lang }) {
         if (!cleanText) return;
 
         const utterance = new SpeechSynthesisUtterance(cleanText);
-        currentUtteranceRef.current = utterance;
-
         const langCode = getLangCode(lang);
         utterance.lang = langCode;
-        utterance.rate = 0.95;
+        utterance.rate = 1.0;
         utterance.pitch = 1.0;
 
-        const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
-        const matchingVoice = voices.find(v => v.lang === langCode || v.lang.replace('_', '-').startsWith(langCode.split('-')[0]));
-        if (matchingVoice) {
-          utterance.voice = matchingVoice;
+        const voices = window.speechSynthesis.getVoices();
+
+        // Smart voice selector: exact lang -> prefix lang -> Indian voice -> default
+        let selectedVoice = null;
+        if (voices && voices.length > 0) {
+          selectedVoice = voices.find(v => v.lang === langCode)
+            || voices.find(v => v.lang.startsWith(lang))
+            || voices.find(v => v.lang.includes('IN') || v.name.includes('India') || v.name.includes('Hindi'))
+            || voices.find(v => v.lang.startsWith('en'))
+            || voices[0];
+        }
+
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
         }
 
         utterance.onstart = () => {
