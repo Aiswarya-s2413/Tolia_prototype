@@ -63,6 +63,18 @@ class DocumentChunk(models.Model):
             )
         ]
 
+    def save(self, *args, **kwargs):
+        # Automatic Vector Lifecycle Hook: Auto-embed chunk if missing embedding
+        if not self.embedding and self.text:
+            try:
+                from .rag_engine import get_embedding
+                vec = get_embedding(self.text)
+                if vec:
+                    self.embedding = vec
+            except Exception as e:
+                pass
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.document.title} - Chunk #{self.chunk_index}"
 
