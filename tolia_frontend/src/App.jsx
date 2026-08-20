@@ -33,27 +33,11 @@ export default function App() {
 
       {/* Standard Enterprise Footer */}
       <footer className="mt-12 border-t border-slate-800/90 bg-slate-950/90 py-5 px-6 text-xs text-slate-400 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
-          
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span className="font-medium text-slate-300">
-              Steel Plant AI Voice RAG System — Protected by Department Security Policy (RBAC)
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4 text-[11px] font-mono text-slate-500">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              Backend: Django REST (Python 3.14)
-            </span>
-            <span>•</span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
-              Frontend: React 19 + Vite
-            </span>
-          </div>
-
+        <div className="max-w-7xl mx-auto flex items-center justify-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span className="font-medium text-slate-300">
+            Steel Plant AI Voice RAG System — Protected by Department Security Policy (RBAC)
+          </span>
         </div>
       </footer>
 
