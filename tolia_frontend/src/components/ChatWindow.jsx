@@ -70,26 +70,48 @@ export default function ChatWindow({ activeRole, lang }) {
     });
   }, [lang]);
 
-  // Speech Recognition (STT) setup
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const silenceTimerRef = useRef(null);
+
+  // Speech Recognition (STT) setup with auto-submit & interim streaming
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.interimResults = true;
       recognition.lang = getLangCode(lang);
 
+      recognition.onstart = () => {
+        setIsListening(true);
+        setLiveTranscript('');
+      };
+
       recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript.trim()) {
-          setInputQuery(transcript);
+        let currentTranscript = '';
+        let isFinal = false;
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          currentTranscript += event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            isFinal = true;
+          }
+        }
+
+        if (currentTranscript) {
+          setLiveTranscript(currentTranscript);
+          setInputQuery(currentTranscript);
+        }
+
+        if (isFinal && currentTranscript.trim()) {
           setIsListening(false);
-          handleSendMessage(transcript);
+          setLiveTranscript('');
+          handleSendMessage(currentTranscript.trim());
         }
       };
 
       recognition.onerror = (err) => {
-        console.error('Speech recognition error:', err);
+        console.warn('Speech recognition status:', err.error);
         setIsListening(false);
       };
 
@@ -101,78 +123,39 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   }, [lang]);
 
-  const startLocalAudioRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioChunksRef.current = [];
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        stream.getTracks().forEach(track => track.stop());
-        
-        if (audioBlob.size > 0) {
-          setIsLoading(true);
-          try {
-            const formData = new FormData();
-            formData.append('audio', audioBlob, 'speech.webm');
-            formData.append('language', lang);
-
-            const res = await fetch('/api/voice/transcribe/', {
-              method: 'POST',
-              body: formData
-            });
-
-            if (res.ok) {
-              const data = await res.json();
-              if (data.text && data.text.trim()) {
-                setInputQuery(data.text);
-                handleSendMessage(data.text);
-                setIsLoading(false);
-                return;
-              }
-            }
-          } catch (err) {
-            console.error('Local STT error, fallback:', err);
-          }
-          setIsLoading(false);
-        }
-      };
-
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start();
-      setIsListening(true);
-    } catch (e) {
-      console.warn("Using browser speech recognition:", e);
-      if (recognitionRef.current) {
-        recognitionRef.current.lang = getLangCode(lang);
-        recognitionRef.current.start();
-        setIsListening(true);
-      }
-    }
-  };
-
-  const stopLocalAudioRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch(e) {}
-    }
-    setIsListening(false);
-  };
-
   const toggleListening = () => {
     if (isListening) {
-      stopLocalAudioRecording();
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch(e) {}
+      }
+      setIsListening(false);
     } else {
-      startLocalAudioRecording();
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.lang = getLangCode(lang);
+          recognitionRef.current.start();
+          setIsListening(true);
+          setLiveTranscript('');
+        } catch (e) {
+          console.error("Speech recognition start failed:", e);
+          try {
+            recognitionRef.current.stop();
+            setTimeout(() => {
+              recognitionRef.current.lang = getLangCode(lang);
+              recognitionRef.current.start();
+              setIsListening(true);
+            }, 200);
+          } catch(err) {}
+        }
+      } else {
+        alert(
+          lang === 'hi'
+            ? 'कृपया Chrome या Edge ब्राउज़र में वॉयस का उपयोग करें।'
+            : lang === 'mr'
+            ? 'कृपया Chrome किंवा Edge ब्राउझरमध्ये व्हॉईस वापरा.'
+            : 'Please use Chrome or Edge browser for voice input.'
+        );
+      }
     }
   };
 
@@ -393,6 +376,19 @@ export default function ChatWindow({ activeRole, lang }) {
             <span className={`w-1.5 rounded-full transition-all duration-200 ${isListening ? 'bg-rose-400 wave-bar-5' : speakingIndex !== null ? 'bg-cyan-400 wave-bar-5' : 'h-1.5 bg-slate-700'}`}></span>
             <span className={`w-1.5 rounded-full transition-all duration-200 ${isListening ? 'bg-rose-400 wave-bar-6' : speakingIndex !== null ? 'bg-cyan-400 wave-bar-6' : 'h-1.5 bg-slate-700'}`}></span>
           </div>
+
+          {/* Live Speech Recognition Transcript Box */}
+          {isListening && (
+            <div className="w-full bg-rose-950/40 border border-rose-500/50 rounded-2xl p-4 text-center animate-pulse">
+              <div className="text-[11px] font-bold text-rose-400 uppercase tracking-wider mb-1 flex items-center justify-center gap-1.5">
+                <Mic className="w-3.5 h-3.5 animate-ping" />
+                <span>{lang === 'hi' ? 'आपकी आवाज़ सुनी जा रही है...' : lang === 'mr' ? 'आपला आवाज ऐकला जात आहे...' : 'Listening to your speech (auto-submits on pause)...'}</span>
+              </div>
+              <p className="text-sm font-semibold text-slate-100 italic">
+                {liveTranscript || (lang === 'hi' ? 'बोलना शुरू करें...' : lang === 'mr' ? 'बोलायला सुरुवात करा...' : 'Speak now...')}
+              </p>
+            </div>
+          )}
 
           {/* Quick Voice Chips */}
           <div className="w-full space-y-2">
