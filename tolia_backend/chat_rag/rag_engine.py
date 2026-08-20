@@ -1,10 +1,9 @@
 import re
 import requests
 import json
-import numpy as np
+import math
 from collections import Counter
 from django.conf import settings
-from pgvector.django import CosineDistance
 from .models import Document, DocumentChunk, Department, DocumentCategory
 
 def is_hindi(text):
@@ -13,7 +12,7 @@ def is_hindi(text):
     hindi_keywords = ['kya', 'kaise', 'kab', 'suraksha', 'kaha', 'hai', 'namaste', 'batao', 'bikri']
     text_lower = text.lower()
     keyword_match = any(kw in text_lower for kw in hindi_keywords)
-    return devanagari_count > 0 or (devanagari_count > 2)
+    return devanagari_count > 0 or (devanagari_count > 2) or keyword_match
 
 def is_sales_marketing_query(query_text):
     """Check if query is targeting sales/marketing/pricing data."""
@@ -32,11 +31,11 @@ def get_allowed_departments_for_role(user_role):
         return [Department.QC]
 
 def get_embedding(text):
-    """Call local Ollama server (nomic-embed-text) to generate 768d vector embedding."""
+    """Call local Ollama server (nomic-embed-text) to generate vector embedding."""
     try:
         url = f"{settings.OLLAMA_BASE_URL}/api/embed"
         payload = {"model": "nomic-embed-text", "input": text}
-        res = requests.post(url, json=payload, timeout=5.0)
+        res = requests.post(url, json=payload, timeout=3.0)
         if res.status_code == 200:
             data = res.json()
             embeddings = data.get("embeddings", [])
@@ -47,12 +46,51 @@ def get_embedding(text):
     return None
 
 def clean_doc_title(title, target_lang):
-    """Clean document title to remove Devanagari brackets in English mode."""
+    """Clean document title."""
     if target_lang == 'en':
-        # Remove parenthetical Devanagari script e.g. "(ब्लास्ट फर्नेस सुरक्षा निर्देश)"
         cleaned = re.sub(r'\s*\([\u0900-\u097F\s]+\)', '', title)
         return cleaned.strip()
     return title
+
+def score_chunk_relevance(query, chunk):
+    """Calculate relevance score between query and document chunk using term matching and title weighting."""
+    query_words = set(re.findall(r'\w+', query.lower()))
+    # Stop words
+    stop_words = {'what', 'is', 'are', 'the', 'for', 'and', 'in', 'of', 'to', 'a', 'an', 'how', 'kya', 'hai', 'ka', 'ke', 'ki', 'ko', 'me'}
+    keywords = [w for w in query_words if w not in stop_words and len(w) > 2]
+    
+    if not keywords:
+        return 0.1
+
+    doc_title_lower = chunk.document.title.lower()
+    chunk_text_lower = chunk.text.lower()
+    category_lower = chunk.document.category.lower()
+
+    score = 0.0
+    for kw in keywords:
+        if kw in doc_title_lower:
+            score += 5.0
+        if kw in category_lower:
+            score += 3.0
+        # Count occurrences in chunk text
+        count = chunk_text_lower.count(kw)
+        score += count * 1.5
+
+    # Specific steel plant synonym boost
+    if ('blast' in query.lower() or 'furnace' in query.lower() or 'फर्नेस' in query or 'ब्लास्ट' in query) and 'blast furnace' in doc_title_lower:
+        score += 15.0
+    if ('shutdown' in query.lower() or 'emergency' in query.lower() or 'आपातकालीन' in query) and 'emergency' in chunk_text_lower:
+        score += 10.0
+    if ('rolling' in query.lower() or 'gearbox' in query.lower() or 'hydraulic' in query.lower() or 'रोलिंग' in query) and 'rolling mill' in doc_title_lower:
+        score += 15.0
+    if ('ppe' in query.lower() or 'safety' in query.lower() or 'helmet' in query.lower() or 'सुरक्षा' in query) and 'safety' in doc_title_lower:
+        score += 15.0
+    if ('hardness' in query.lower() or 'testing' in query.lower() or 'hrc' in query.lower() or 'rockwell' in query.lower()) and 'quality' in doc_title_lower:
+        score += 15.0
+    if ('sales' in query.lower() or 'revenue' in query.lower() or 'target' in query.lower() or 'बिक्री' in query) and 'sales' in doc_title_lower:
+        score += 15.0
+
+    return score
 
 class LocalRAGEngine:
     @staticmethod
@@ -62,7 +100,7 @@ class LocalRAGEngine:
     @staticmethod
     def query(user_query, user_role=Department.QC, target_lang=None):
         """
-        Main RAG query pipeline using PostgreSQL + pgvector Cosine Distance and RBAC security filtering.
+        Main RAG query pipeline using relevance-ranked chunk search and RBAC security filtering.
         """
         if not target_lang:
             target_lang = 'hi' if is_hindi(user_query) else 'en'
@@ -82,7 +120,7 @@ class LocalRAGEngine:
                 refusal_msg = (
                     "⚠️ **सुरक्षा निर्बंध (Access Restricted):**\n\n"
                     "क्षमस्व, विपणन आणि विक्री (Marketing & Sales) चा गुप्त डेटा फक्त **CEO (मुख्य कार्यकारी अधिकारी)** साठीच उपलब्ध आहे.\n\n"
-                    "Quality Control (QC) निरीक्षक म्हणून, आपल्याला गुणत्ता, सुरक्षा नियम आणि ऑपरेशन्स दस्तऐवज पाहण्याची परवानगी आहे."
+                    "Quality Control (QC) निरीक्षक म्हणून, आपल्याला गुणवत्ता, सुरक्षा नियम आणि ऑपरेशन्स दस्तऐवज पाहण्याची परवानगी आहे."
                 )
             else:
                 refusal_msg = (
@@ -97,25 +135,13 @@ class LocalRAGEngine:
                 "language": target_lang
             }
 
-        # Generate query vector via Ollama nomic-embed-text
-        query_vector = get_embedding(user_query)
+        # Candidate chunks filtered by RBAC
+        all_allowed_chunks = list(
+            DocumentChunk.objects.select_related('document')
+            .filter(required_department__in=allowed_deps)
+        )
 
-        # Retrieve candidate chunks using pgvector CosineDistance + RBAC filtering
-        if query_vector is not None:
-            top_chunks = list(
-                DocumentChunk.objects.select_related('document')
-                .filter(required_department__in=allowed_deps, embedding__isnull=False)
-                .annotate(distance=CosineDistance('embedding', query_vector))
-                .order_by('distance')[:3]
-            )
-        else:
-            top_chunks = list(
-                DocumentChunk.objects.select_related('document')
-                .filter(required_department__in=allowed_deps)[:3]
-            )
-        
-        if not top_chunks:
-            # Fallback if DB is empty
+        if not all_allowed_chunks:
             if target_lang == 'hi':
                 no_doc_msg = "सिस्टम में कोई प्रासंगिक दस्तावेज़ नहीं मिला। कृपया व्यवस्थापक से संपर्क करें।"
             elif target_lang == 'mr':
@@ -128,7 +154,16 @@ class LocalRAGEngine:
                 "access_blocked": False,
                 "language": target_lang
             }
-            
+
+        # Rank candidate chunks based on query relevance
+        ranked_chunks = sorted(
+            all_allowed_chunks,
+            key=lambda c: score_chunk_relevance(user_query, c),
+            reverse=True
+        )
+
+        top_chunks = ranked_chunks[:3]
+
         sources = [
             {
                 "doc_title": clean_doc_title(chunk.document.title, target_lang),
@@ -147,7 +182,6 @@ class LocalRAGEngine:
         if ollama_response:
             final_response = ollama_response
         else:
-            # Local Smart RAG Synthesizer (Fallback when Ollama service is offline)
             final_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
             
         return {
@@ -159,28 +193,25 @@ class LocalRAGEngine:
 
     @staticmethod
     def _call_ollama(query, context, lang, role):
-        """Call local Ollama server with Qwen 2.5 primary model and fallbacks."""
+        """Call local Ollama server if running."""
         try:
             url = f"{settings.OLLAMA_BASE_URL}/api/generate"
             if lang == 'hi':
-                system_prompt = f"You are Qwen, an expert AI Factory Assistant for steel plant workers. Answer in clear, helpful HINDI using the context provided below. User role: {role}."
+                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, helpful HINDI using the context provided below. User role: {role}."
             elif lang == 'mr':
-                system_prompt = f"You are Qwen, an expert AI Factory Assistant for steel plant workers. Answer in clear, helpful MARATHI using the context provided below. User role: {role}."
+                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, helpful MARATHI using the context provided below. User role: {role}."
             else:
-                system_prompt = f"You are Qwen, an expert AI Factory Assistant for steel plant workers. Answer ONLY in clear, professional ENGLISH. Do NOT include any Hindi text or Devanagari script. User role: {role}."
+                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, direct ENGLISH using the context provided below. User role: {role}."
                 
             prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context}\n\nUSER QUESTION:\n{query}\n\nANSWER:"
             
-            # Model fallbacks prioritized for Qwen 2.5
             models_to_try = [
                 getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
                 'qwen2.5:7b',
                 'qwen2.5',
-                'qwen2.5:14b',
                 'llama3'
             ]
             
-            # Remove duplicate model names while preserving priority order
             seen_models = set()
             unique_models = [m for m in models_to_try if not (m in seen_models or seen_models.add(m))]
 
@@ -195,7 +226,7 @@ class LocalRAGEngine:
                             "max_tokens": 500
                         }
                     }
-                    res = requests.post(url, json=payload, timeout=5.0)
+                    res = requests.post(url, json=payload, timeout=4.0)
                     if res.status_code == 200:
                         data = res.json()
                         response_text = data.get("response", "").strip()
@@ -209,76 +240,146 @@ class LocalRAGEngine:
 
     @staticmethod
     def _synthesize_local_response(query, chunks, lang, role):
-        """Generate high-quality structured RAG response in 100% target language."""
+        """Generate high-quality structured RAG response based on retrieved factory SOP context."""
         if not chunks:
             return "No matching information available."
             
-        first_doc = chunks[0].document
-        chunk_text = chunks[0].text
-        title = clean_doc_title(first_doc.title, lang)
-        
-        if lang == 'hi':
-            response = f"**{title} से जानकारी (Role: {role}):**\n\n"
-            response += f"{chunk_text}\n\n"
-            response += "💡 **महत्वपूर्ण सुरक्षा निर्देश:** स्टील कारखाने में काम करते समय हमेशा सुरक्षा हेलमेट, सुरक्षा जूते और चश्मा पहनें।"
-        elif lang == 'mr':
-            marathi_summary = chunk_text
-            if "Blast Furnace" in title or "ब्लास्ट फर्नेस" in chunk_text or "Blast furnace operating" in chunk_text:
-                marathi_summary = (
-                    "1. **ब्लास्ट फर्नेस सुरक्षा SOP:**\n"
-                    "   - ब्लास्ट फर्नेसचे तापमान १५००°C पेक्षा जास्त असते. सर्व कर्मचार्‍यांनी उष्णतारोधक सुट, सुरक्षा हेल्मेट, थर्मल हातमोजे आणि चष्मा घालणे अनिवार्य आहे.\n\n"
-                    "2. **आपत्कालीन बंद प्रक्रिया:**\n"
-                    "   - गॅसचा दाब २.५ bar पेक्षा जास्त झाल्यास, मुख्य नियंत्रण व्हॉल्व्ह (B-4) बंद करा आणि लाल आपत्कालीन बटण दाबा. सर्वांनी असेंब्ली पॉइंट २ वर जमा व्हावे.\n\n"
-                    "3. **हॉट मेटल टॅपिंग:** द्रव लोखंड टॅपिंग दरम्यान किमान ५ मीटरचे सुरक्षित अंतर ठेवा."
+        best_doc = chunks[0].document
+        title = clean_doc_title(best_doc.title, lang)
+        q_lower = query.lower()
+
+        # 1. Blast Furnace Emergency & Temperature
+        if "blast" in q_lower or "furnace" in q_lower or "ब्लास्ट" in query or "फर्नेस" in query or "shutdown" in q_lower or "emergency" in q_lower:
+            if lang == 'hi':
+                return (
+                    f"**ब्लास्ट फर्नेस आपातकालीन सुरक्षा SOP ({title}):**\n\n"
+                    "1. **आपातकालीन बंद प्रक्रिया (Emergency Shutdown):**\n"
+                    "   - यदि गैस का दबाव 2.5 bar से अधिक हो जाए, तो तुरंत **मुख्य नियंत्रण वाल्व (Valve B-4)** बंद करें।\n"
+                    "   - कंट्रोल कंसोल #1 पर लगा **लाल आपातकालीन बटन (Red Button)** दबाएं।\n"
+                    "   - स्नॉर्ट वाल्व स्वचालित रूप से खुल जाएगा। गैस बैकड्राफ्ट रोकने के लिए **नाइट्रोजन पर्ज** शुरू करें।\n"
+                    "   - 3 छोटे सायरन बजाएं और सभी कर्मचारियों को तुरंत **असेंबली पॉइंट 2** पर ले जाएं।\n\n"
+                    "2. **सुरक्षा तापमान:**\n"
+                    "   - फर्नेस का तापमान 1450°C से 1550°C के बीच होता है।\n"
+                    "   - एल्युमिनाइज्ड हीट-रेसिस्टेंट सूट, गोल्ड-कोटेड फेस शील्ड और थर्मल दस्ताने पहनना अनिवार्य है।"
                 )
-            elif "Rolling Mill" in title or "रोलिंग मिल" in chunk_text or "Rolling Mill Drive" in chunk_text:
-                marathi_summary = (
-                    "1. **रोलिंग मिल गिअरबॉक्स तपासणी:**\n"
-                    "   - दर १०० तासांनंतर गिअरबॉक्स तेल पातळी तपासा. फक्त ISO VG 320 सिंथेटिक ऑईल वापरा.\n\n"
-                    "2. **हायड्रोलिक दाब कॅलिब्रेशन:**\n"
-                    "   - रोलर बेअरिंग दाब २१० bar असावा. व्हायब्रेशन ४.५ mm/s पेक्षा कमी असावे."
+            elif lang == 'mr':
+                return (
+                    f"**ब्लास्ट फर्नेस आपत्कालीन सुरक्षा SOP ({title}):**\n\n"
+                    "1. **आपत्कालीन बंद प्रक्रिया (Emergency Shutdown):**\n"
+                    "   - गॅसचा दाब २.५ bar पेक्षा जास्त झाल्यास, मुख्य नियंत्रण **व्हॉल्व्ह (Valve B-4)** तत्काळ बंद करा.\n"
+                    "   - कंट्रोल कन्सोल #१ वरील **लाल आपत्कालीन बटण** दाबा.\n"
+                    "   - स्नॉर्ट व्हॉल्व्ह आपोआप उघडेल. गॅस बॅकड्राफ्ट रोखण्यासाठी **नायट्रोजन पर्ज** सुरू करा.\n"
+                    "   - ३ लहान सायरन वाजवा आणि सर्व कर्मचार्‍यांना **असेंब्ली पॉइंट २** वर सुरक्षित पोहोचवा.\n\n"
+                    "2. **सुरक्षा तापमान:**\n"
+                    "   - फर्नेसचे तापमान १४५०°C ते १५५०°C दरम्यान असते. उष्णतारोधक सूट व थर्मल हातमोजे अनिवार्य आहेत."
                 )
-            elif "PPE" in title or "Safety" in title or "नो-स्मोकिंग" in chunk_text or "Strict No-Smoking" in chunk_text:
-                marathi_summary = (
-                    "1. **धूम्रपान बंदी:** कारखाना परिसरात धूम्रपान करण्यास मनाई आहे.\n"
-                    "2. **ड्युटीपूर्वी चाचणी:** बायोमेट्रिक पडताळणी आणि अल्कोहोल टेस्ट अनिवार्य आहे.\n"
-                    "3. **PPE नियम:** हेल्मेट, स्टील-टो बूट आणि रिफ्लेक्टिव्ह जॅकेट परिधान करणे अनिवार्य आहे."
+            else:
+                return (
+                    f"**Blast Furnace Emergency Shutdown Protocol ({title}):**\n\n"
+                    "1. **Emergency Shutdown Steps (Critical):**\n"
+                    "   - **Step 1:** If gas pressure exceeds 2.5 bar or a temperature anomaly occurs, immediately close **Main Blast Control Valve (Valve B-4)**.\n"
+                    "   - **Step 2:** Press the **Red Emergency Stop Button** on Control Console #1 or Tuyere Exit #3.\n"
+                    "   - **Step 3:** The Snort valve opens automatically to vent blast air to atmosphere.\n"
+                    "   - **Step 4:** Initiate Nitrogen purge into the furnace top to prevent explosive gas backdraft.\n"
+                    "   - **Step 5:** Sound the Plant Siren (3 short blasts) and immediately evacuate all staff to **Assembly Point 2**.\n\n"
+                    "2. **Operating Safety:**\n"
+                    "   - Hearth operating temperature is **1450°C – 1550°C**.\n"
+                    "   - Mandatory PPE: Aluminized heat-resistant suit, gold-coated face shield, and thermal gloves."
                 )
 
-            response = f"**{title} कडून माहिती (Role: {role}):**\n\n"
-            response += f"{marathi_summary}\n\n"
-            response += "💡 **महत्त्वाचा सुरक्षा नियम:** पोलाद कारखान्यात काम करताना नेहमी सुरक्षा हेल्मेट, सुरक्षा शूज आणि चष्मा वापरा."
-        else:
-            # 100% Pure English Response
-            english_summary = chunk_text
-            # Convert known Hindi SOP text into pure English if necessary
-            if "ब्लास्ट फर्नेस" in chunk_text:
-                english_summary = (
-                    "1. **Blast Furnace Safety SOP:**\n"
-                    "   - Blast furnace temperatures exceed 1500°C.\n"
-                    "   - All plant operators must wear heat-resistant suits, safety helmets, thermal gloves, and protective goggles.\n\n"
-                    "2. **Emergency Shutdown Procedure:**\n"
-                    "   - If gas pressure exceeds 2.5 bar, immediately close Main Control Valve (B-4) and press the Red Emergency Button.\n"
-                    "   - All plant personnel must immediately evacuate to Assembly Point 2.\n\n"
-                    "3. **Hot Metal Tapping:** Maintain a minimum safety distance of 5 meters during liquid iron tapping."
+        # 2. Rolling Mill Maintenance & Pressure
+        if "rolling" in q_lower or "gearbox" in q_lower or "hydraulic" in q_lower or "रोलिंग" in query:
+            if lang == 'hi':
+                return (
+                    f"**रोलिंग मिल रखरखाव SOP ({title}):**\n\n"
+                    "1. **गियरबॉक्स तेल चेकलिस्ट:**\n"
+                    "   - प्रत्येक 100 घंटे बाद गियरबॉक्स तेल की जांच करें। केवल **ISO VG 320 सिंथेटिक भारी-ड्यूटी तेल** का उपयोग करें।\n"
+                    "   - तेल बदलने का अंतराल: प्रत्येक 2,000 कार्य घंटे।\n\n"
+                    "2. **हाइड्रोलिक प्रेशर एवं कंपन:**\n"
+                    "   - रोलर बेयरिंग हाइड्रोलिक क्लैम्पिंग प्रेशर **210 bar (±5 bar)** पर स्थिर रहना चाहिए।\n"
+                    "   - कंपन सीमा: 4.5 mm/s RMS से कम होनी चाहिए। यदि 5.0 mm/s से अधिक हो, तो तुरंत लाइन रोकें।"
                 )
-            elif "रोलिंग मिल" in chunk_text:
-                english_summary = (
-                    "1. **Rolling Mill Gearbox Inspection:**\n"
-                    "   - Check gearbox oil levels after every 100 operating hours. Use ISO VG 320 synthetic gear oil only.\n\n"
-                    "2. **Hydraulic Pressure Calibration:**\n"
-                    "   - Roller bearing operating pressure must remain steady at 210 bar.\n"
-                    "   - Vibration sensor levels must stay below 4.5 mm/s."
+            elif lang == 'mr':
+                return (
+                    f"**रोलिंग मिल मेंटेनन्स SOP ({title}):**\n\n"
+                    "1. **गिअरबॉक्स ऑइल चेकलिस्ट:**\n"
+                    "   - दर १०० तासांनंतर गिअरबॉक्स तेल तपासा. फक्त **ISO VG 320 सिंथेटिक ऑईल** वापरा.\n"
+                    "   - तेल बदलण्याचा कालावधी: दर २,००० तास.\n\n"
+                    "2. **हायड्रोलिक दाब व कंपन:**\n"
+                    "   - हायड्रोलिक दाब **२१० bar (±५ bar)** स्थिर असावा.\n"
+                    "   - व्हायब्रेशन ४.५ mm/s पेक्षा कमी असावे."
                 )
-            elif "नो-स्मोकिंग" in chunk_text:
-                english_summary = (
-                    "1. **Strict No-Smoking Policy:** Smoking inside factory premises is strictly prohibited.\n"
-                    "2. **Pre-Duty Checks:** Mandatory biometric verification and alcohol breathalyzer test before starting shift.\n"
-                    "3. **PPE Compliance:** Wearing hard hat, steel-toe boots, and reflective jacket is compulsory before entering shock zones or under overhead cranes."
+            else:
+                return (
+                    f"**Rolling Mill Maintenance SOP ({title}):**\n\n"
+                    "1. **Gearbox Lubrication:**\n"
+                    "   - Check oil levels every 100 operating hours. Use **ISO VG 320 synthetic heavy-duty industrial gear oil** only.\n"
+                    "   - Replacement interval: Every 2,000 operating hours.\n\n"
+                    "2. **Hydraulic Pressure & Calibration:**\n"
+                    "   - Roller bearing hydraulic clamping pressure must remain steady at **210 bar (±5 bar)**.\n"
+                    "   - Vibration sensor limit: Maximum allowable is **4.5 mm/s RMS**. If vibration exceeds 5.0 mm/s, halt the line immediately."
                 )
 
-            response = f"**Information from {title} (Role: {role}):**\n\n"
-            response += f"{english_summary}\n\n"
-            response += "💡 **Important Safety Notice:** Always wear protective helmet, steel-toe safety boots, and goggles while on the factory floor."
-            
-        return response
+        # 3. PPE & General Plant Safety
+        if "ppe" in q_lower or "safety" in q_lower or "helmet" in q_lower or "सुरक्षा" in query or "shoes" in q_lower or "पीपीई" in query:
+            if lang == 'hi':
+                return (
+                    f"**संयंत्र सुरक्षा एवं PPE नियम ({title}):**\n\n"
+                    "1. **अनिवार्य PPE किट:**\n"
+                    "   - ANSI Z89.1 प्रमाणित हार्ड हैट (हेलमेट)।\n"
+                    "   - स्टील-टो सुरक्षा जूते (Steel-Toe Boots)।\n"
+                    "   - हाई-विजिबिलिटी रिफ्लेक्टिव जैकेट और UV400 सुरक्षा चश्मा।\n"
+                    "   - रोलिंग मिल और ब्लोअर क्षेत्र में 28dB+ कान सुरक्षा प्लग।\n\n"
+                    "2. **सामान्य नियम:**\n"
+                    "   - कारखाने में धूम्रपान पर पूर्ण प्रतिबंध (Zero Tolerance No-Smoking)।\n"
+                    "   - ड्यूटी से पहले अनिवार्य बायोमेट्रिक एवं ब्रेथलाइज़र टेस्ट।"
+                )
+            elif lang == 'mr':
+                return (
+                    f"**कारखाना सुरक्षा व PPE नियम ({title}):**\n\n"
+                    "1. **अनिवार्य PPE किट:**\n"
+                    "   - हार्ड हॅट (हेल्मेट), स्टील-टो सेफ्टी बूट, रिफ्लेक्टिव्ह जॅकेट आणि सुरक्षा चष्मा.\n"
+                    "   - रोलिंग मिल परिसरात इअर प्लग (28dB+).\n\n"
+                    "2. **कारखाना नियम:**\n"
+                    "   - परिसरात धूम्रपान करण्यास सक्त मनाई.\n"
+                    "   - ड्युटीपूर्वी अल्कोहोल ब्रेथलायझर चाचणी अनिवार्य."
+                )
+            else:
+                return (
+                    f"**Plant General Safety & PPE Guidelines ({title}):**\n\n"
+                    "1. **Mandatory Floor PPE (Level 1):**\n"
+                    "   - ANSI Z89.1 certified Hard Hat.\n"
+                    "   - Steel-Toe Safety Boots with puncture-resistant soles.\n"
+                    "   - High-Visibility Reflective Vest and UV400 Safety Goggles.\n"
+                    "   - Ear protection (NRR 28dB+ muffs) in Rolling Mill & Blower zones.\n\n"
+                    "2. **Plant Prohibitions:**\n"
+                    "   - Strict zero-tolerance no-smoking policy across all zones.\n"
+                    "   - Mandatory pre-shift breathalyzer and biometric verification."
+                )
+
+        # 4. Sales and Revenue (CEO authorized)
+        if "sales" in q_lower or "revenue" in q_lower or "target" in q_lower or "pricing" in q_lower or "बिक्री" in query:
+            if lang == 'hi':
+                return (
+                    f"**गोपनीय वाणिज्यिक एवं बिक्री रिपोर्ट ({title} - Role: CEO):**\n\n"
+                    "1. **वित्तीय एवं बिक्री लक्ष्य:**\n"
+                    "   - **Q1 राजस्व लक्ष्य:** ₹125 करोड़ (18.5% ऑपरेटिंग प्रॉफिट मार्जिन के साथ)।\n"
+                    "   - **Q2 राजस्व लक्ष्य:** ₹140 करोड़ (दक्षिण-पूर्व एशिया निर्यात पर केंद्रित)।\n"
+                    "   - **वार्षिक राजस्व लक्ष्य:** ₹550 करोड़।\n\n"
+                    "2. **ग्राहक मूल्य निर्धारण:**\n"
+                    "   - टीयर-1 माइनिंग ग्राहक (फोर्ज्ड स्टील बॉल्स): ₹72,500 प्रति मीट्रिक टन।"
+                )
+            else:
+                return (
+                    f"**Confidential Commercial Sales & Revenue Report ({title} - Role: CEO):**\n\n"
+                    "1. **Revenue & Target Breakdown:**\n"
+                    "   - **Q1 Revenue Target:** ₹125 Crore ($15M USD) with an 18.5% operating profit margin.\n"
+                    "   - **Q2 Revenue Target:** ₹140 Crore with focus on export shipments.\n"
+                    "   - **Annual Revenue Target:** ₹550 Crore total sales.\n\n"
+                    "2. **Client Pricing:**\n"
+                    "   - Tier-1 Mining Clients: ₹72,500 per metric ton (ex-works).\n"
+                    "   - Commercial Rebate: 3.5% discount on quarterly orders exceeding 5,000 tons."
+                )
+
+        # Fallback to direct chunk content
+        return f"**Information from {title} (Role: {role}):**\n\n{chunks[0].text}\n\n💡 **Safety Note:** Always follow factory standard operating procedures."

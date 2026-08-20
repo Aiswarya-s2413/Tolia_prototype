@@ -159,10 +159,23 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   };
 
+  // Preload speech synthesis voices
+  const [availableVoices, setAvailableVoices] = useState([]);
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      const updateVoices = () => {
+        const v = window.speechSynthesis.getVoices();
+        if (v.length > 0) setAvailableVoices(v);
+      };
+      updateVoices();
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+  }, []);
+
   // Text to Speech (TTS)
   const speakText = (text, index) => {
     if (!('speechSynthesis' in window)) {
-      alert('Text-to-speech is not supported in your browser.');
+      console.warn('Text-to-speech is not supported in this browser.');
       return;
     }
 
@@ -172,32 +185,42 @@ export default function ChatWindow({ activeRole, lang }) {
       return;
     }
 
-    window.speechSynthesis.cancel();
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
 
-    const cleanText = text
-      .replace(/[*_#`~]/g, '')
-      .replace(/⚠️|💡|📌|▶️|✅/g, '')
-      .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-      .replace(/https?:\/\/\S+/g, '')
-      .trim();
+      const cleanText = text
+        .replace(/[*_#`~]/g, '')
+        .replace(/⚠️|💡|📌|▶️|✅/g, '')
+        .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+        .replace(/https?:\/\/\S+/g, '')
+        .trim();
 
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    const langCode = getLangCode(lang);
-    utterance.lang = langCode;
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      const langCode = getLangCode(lang);
+      utterance.lang = langCode;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
 
-    const voices = window.speechSynthesis.getVoices();
-    const matchingVoice = voices.find(v => v.lang === langCode || v.lang.startsWith(lang));
-    if (matchingVoice) {
-      utterance.voice = matchingVoice;
+      const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
+      const matchingVoice = voices.find(v => v.lang === langCode || v.lang.startsWith(lang));
+      if (matchingVoice) {
+        utterance.voice = matchingVoice;
+      }
+
+      utterance.onstart = () => setSpeakingIndex(index);
+      utterance.onend = () => setSpeakingIndex(null);
+      utterance.onerror = (e) => {
+        console.warn('SpeechSynthesis error:', e);
+        setSpeakingIndex(null);
+      };
+
+      setSpeakingIndex(index);
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.error("Failed to speak text:", e);
+      setSpeakingIndex(null);
     }
-
-    utterance.onend = () => setSpeakingIndex(null);
-    utterance.onerror = () => setSpeakingIndex(null);
-
-    setSpeakingIndex(index);
-    window.speechSynthesis.speak(utterance);
   };
 
   const copyToClipboard = (text, index) => {
@@ -209,6 +232,10 @@ export default function ChatWindow({ activeRole, lang }) {
   const handleSendMessage = async (queryToSend) => {
     const query = (queryToSend || inputQuery).trim();
     if (!query || isLoading) return;
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.resume();
+    }
 
     const userMsg = {
       sender: 'user',
@@ -250,7 +277,7 @@ export default function ChatWindow({ activeRole, lang }) {
         const newMsgIndex = nextMessages.length - 1;
 
         if (autoSpeak) {
-          setTimeout(() => speakText(data.response, newMsgIndex), 350);
+          setTimeout(() => speakText(data.response, newMsgIndex), 100);
         }
         return nextMessages;
       });
