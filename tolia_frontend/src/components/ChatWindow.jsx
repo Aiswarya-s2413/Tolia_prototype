@@ -159,13 +159,16 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   };
 
+  // Utterance reference to prevent Chrome garbage collection bug
+  const currentUtteranceRef = useRef(null);
+
   // Preload speech synthesis voices
   const [availableVoices, setAvailableVoices] = useState([]);
   useEffect(() => {
     if ('speechSynthesis' in window) {
       const updateVoices = () => {
         const v = window.speechSynthesis.getVoices();
-        if (v.length > 0) setAvailableVoices(v);
+        if (v && v.length > 0) setAvailableVoices(v);
       };
       updateVoices();
       window.speechSynthesis.onvoiceschanged = updateVoices;
@@ -182,44 +185,62 @@ export default function ChatWindow({ activeRole, lang }) {
     if (speakingIndex === index) {
       window.speechSynthesis.cancel();
       setSpeakingIndex(null);
+      currentUtteranceRef.current = null;
       return;
     }
 
     try {
       window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
 
-      const cleanText = text
-        .replace(/[*_#`~]/g, '')
-        .replace(/⚠️|💡|📌|▶️|✅/g, '')
-        .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-        .replace(/https?:\/\/\S+/g, '')
-        .trim();
+      setTimeout(() => {
+        window.speechSynthesis.resume();
 
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      const langCode = getLangCode(lang);
-      utterance.lang = langCode;
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
+        const cleanText = text
+          .replace(/[*_#`~]/g, '')
+          .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
+          .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+          .replace(/https?:\/\/\S+/g, '')
+          .trim();
 
-      const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
-      const matchingVoice = voices.find(v => v.lang === langCode || v.lang.startsWith(lang));
-      if (matchingVoice) {
-        utterance.voice = matchingVoice;
-      }
+        if (!cleanText) return;
 
-      utterance.onstart = () => setSpeakingIndex(index);
-      utterance.onend = () => setSpeakingIndex(null);
-      utterance.onerror = (e) => {
-        console.warn('SpeechSynthesis error:', e);
-        setSpeakingIndex(null);
-      };
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        currentUtteranceRef.current = utterance;
 
-      setSpeakingIndex(index);
-      window.speechSynthesis.speak(utterance);
+        const langCode = getLangCode(lang);
+        utterance.lang = langCode;
+        utterance.rate = 0.95;
+        utterance.pitch = 1.0;
+
+        const voices = availableVoices.length > 0 ? availableVoices : window.speechSynthesis.getVoices();
+        const matchingVoice = voices.find(v => v.lang === langCode || v.lang.replace('_', '-').startsWith(langCode.split('-')[0]));
+        if (matchingVoice) {
+          utterance.voice = matchingVoice;
+        }
+
+        utterance.onstart = () => {
+          setSpeakingIndex(index);
+        };
+
+        utterance.onend = () => {
+          setSpeakingIndex(null);
+          currentUtteranceRef.current = null;
+        };
+
+        utterance.onerror = (e) => {
+          console.warn('SpeechSynthesis event error:', e);
+          setSpeakingIndex(null);
+          currentUtteranceRef.current = null;
+        };
+
+        setSpeakingIndex(index);
+        window.speechSynthesis.speak(utterance);
+      }, 50);
+
     } catch (e) {
       console.error("Failed to speak text:", e);
       setSpeakingIndex(null);
+      currentUtteranceRef.current = null;
     }
   };
 
