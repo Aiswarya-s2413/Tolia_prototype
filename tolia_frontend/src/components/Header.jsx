@@ -16,7 +16,7 @@ export default function Header({ activeTab, setActiveTab, activeRole, setRole, l
   const getNavTitle = (key) => {
     switch (key) {
       case 'chat':
-        return lang === 'hi' ? 'एआई सहायक' : lang === 'mr' ? 'एआय सहाय्यक' : 'AI Assistant';
+        return lang === 'hi' ? 'वॉयस सहायक (Voice AI)' : lang === 'mr' ? 'व्हॉईस सहाय्यक (Voice AI)' : 'Voice Assistant';
       case 'docs':
         return lang === 'hi' ? 'ज्ञान कोष (KB)' : lang === 'mr' ? 'ज्ञानकोश (KB)' : 'Knowledge Base';
       case 'security':
@@ -46,18 +46,18 @@ export default function Header({ activeTab, setActiveTab, activeRole, setRole, l
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-base tracking-tight text-white font-sans flex items-center gap-1.5">
-                  {lang === 'hi' ? 'एआई कारखाना सहायक' : lang === 'mr' ? 'एआय कारखाना सहाय्यक' : 'AI Assistant'}
+                  {lang === 'hi' ? 'टोलिया वॉयस सहायक' : lang === 'mr' ? 'टोलिया व्हॉईस सहाय्यक' : 'Tolia Voice AI'}
                 </span>
                 <span className="hidden sm:inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono">
-                  ENTERPRISE RAG
+                  LOCAL INDIC VOICE
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 font-medium">
                 {lang === 'hi'
-                  ? 'संयंत्र एआई सहायक एवं सुरक्षा प्रणाली'
+                  ? 'संयंत्र एआई वॉयस सहायक एवं RAG सुरक्षा प्रणाली'
                   : lang === 'mr'
-                  ? 'कारखाना एआय सहाय्यक व सुरक्षा प्रणाली'
-                  : 'Industrial AI Assistant & Knowledge RAG System'}
+                  ? 'कारखाना एआय व्हॉईस सहाय्यक व RAG सुरक्षा प्रणाली'
+                  : 'Industrial Voice-First AI & Knowledge RAG System'}
               </p>
             </div>
           </div>
@@ -68,11 +68,11 @@ export default function Header({ activeTab, setActiveTab, activeRole, setRole, l
               onClick={() => setActiveTab('chat')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === 'chat'
-                  ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                  ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md shadow-indigo-600/30'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
               }`}
             >
-              <MessageSquare className="w-3.5 h-3.5" />
+              <Activity className="w-3.5 h-3.5 text-cyan-300" />
               <span>{getNavTitle('chat')}</span>
             </button>
 

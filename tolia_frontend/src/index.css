@@ -72,8 +72,8 @@ body {
     box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.7);
   }
   70% {
-    transform: scale(1.15);
-    box-shadow: 0 0 0 14px rgba(244, 63, 94, 0);
+    transform: scale(1.18);
+    box-shadow: 0 0 0 20px rgba(244, 63, 94, 0);
   }
   100% {
     transform: scale(0.95);
@@ -82,16 +82,39 @@ body {
 }
 
 .animate-mic-active {
-  animation: pulse-ring 1.5s infinite;
+  animation: pulse-ring 1.4s infinite cubic-bezier(0.4, 0, 0.6, 1);
+}
+
+/* Glowing Voice Orb */
+@keyframes orb-float {
+  0%, 100% { transform: translateY(0px) scale(1); filter: drop-shadow(0 0 25px rgba(99, 102, 241, 0.45)); }
+  50% { transform: translateY(-4px) scale(1.03); filter: drop-shadow(0 0 40px rgba(6, 182, 212, 0.65)); }
+}
+
+@keyframes orb-speaking {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 30px rgba(6, 182, 212, 0.7)); }
+  50% { transform: scale(1.08); filter: drop-shadow(0 0 55px rgba(99, 102, 241, 0.9)); }
+}
+
+.animate-orb-idle {
+  animation: orb-float 4s ease-in-out infinite;
+}
+
+.animate-orb-speaking {
+  animation: orb-speaking 1.2s ease-in-out infinite;
 }
 
 /* Audio wave animation */
-@keyframes audio-wave {
-  0%, 100% { height: 6px; }
-  50% { height: 18px; }
+@keyframes audio-wave-active {
+  0%, 100% { height: 4px; }
+  50% { height: 28px; }
 }
 
-.wave-bar-1 { animation: audio-wave 1s ease-in-out infinite 0.1s; }
-.wave-bar-2 { animation: audio-wave 1s ease-in-out infinite 0.3s; }
-.wave-bar-3 { animation: audio-wave 1s ease-in-out infinite 0.2s; }
+.wave-bar-1 { animation: audio-wave-active 0.8s ease-in-out infinite 0.1s; }
+.wave-bar-2 { animation: audio-wave-active 0.8s ease-in-out infinite 0.3s; }
+.wave-bar-3 { animation: audio-wave-active 0.8s ease-in-out infinite 0.2s; }
+.wave-bar-4 { animation: audio-wave-active 0.8s ease-in-out infinite 0.4s; }
+.wave-bar-5 { animation: audio-wave-active 0.8s ease-in-out infinite 0.15s; }
+.wave-bar-6 { animation: audio-wave-active 0.8s ease-in-out infinite 0.35s; }
+
 
