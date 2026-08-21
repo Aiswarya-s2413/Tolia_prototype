@@ -53,6 +53,24 @@ class LocalSTTService:
 
 class LocalTTSService:
     @staticmethod
+    def speak_out_loud(text, language='en'):
+        """
+        Direct hardware speaker playback via macOS speech synthesis.
+        Bypasses browser audio sandbox and tab muting completely.
+        """
+        try:
+            clean_text = re.sub(r'[*_#`~⚠️💡📌▶️✅🛡️🏢👥📋📜]', '', text)
+            clean_text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean_text)
+            clean_text = re.sub(r'https?:\/\/\S+', '', clean_text)
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+            if not clean_text:
+                return
+            voice = "Lekha" if language in ['hi', 'mr'] else "Rishi"
+            subprocess.Popen(["/usr/bin/say", "-v", voice, clean_text])
+        except Exception as e:
+            print(f"Direct speak error: {e}")
+
+    @staticmethod
     def synthesize_speech(text, language='en'):
         """
         Synthesize speech locally using native high-fidelity neural voice engine.
@@ -67,6 +85,9 @@ class LocalTTSService:
             
             if not clean_text:
                 return None
+
+            # Also trigger hardware audio output directly
+            LocalTTSService.speak_out_loud(clean_text, language)
 
             # Choose best installed voice for requested language
             voice = "Rishi" # Default Indian English
