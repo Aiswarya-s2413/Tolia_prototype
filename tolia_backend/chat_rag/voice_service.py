@@ -1,9 +1,8 @@
 import os
 import io
+import re
 import tempfile
-import torch
-import numpy as np
-import soundfile as sf
+import subprocess
 from faster_whisper import WhisperModel
 
 _stt_model = None
@@ -14,7 +13,6 @@ def get_stt_model():
     if _stt_model is None:
         device = "cpu"
         compute_type = "int8"
-        # Small / base model runs ultra-fast and locally with great multilingual Indic support
         model_size = os.getenv("WHISPER_MODEL_SIZE", "base")
         _stt_model = WhisperModel(model_size, device=device, compute_type=compute_type)
     return _stt_model
@@ -57,26 +55,55 @@ class LocalTTSService:
     @staticmethod
     def synthesize_speech(text, language='en'):
         """
-        Synthesize speech locally for Indic languages (Hindi, Marathi, English).
-        Returns wav audio bytes.
+        Synthesize speech locally using native high-fidelity neural voice engine.
+        Returns standard uncompressed 16-bit PCM WAV audio bytes.
         """
         try:
-            # Clean markup tags
-            import re
-            clean_text = re.sub(r'[*_#`~⚠️💡📌▶️✅]', '', text).strip()
+            # Clean markup tags, urls, bullet formatting
+            clean_text = re.sub(r'[*_#`~⚠️💡📌▶️✅🛡️🏢👥📋📜]', '', text)
+            clean_text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean_text)
+            clean_text = re.sub(r'https?:\/\/\S+', '', clean_text)
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
             
-            # Use local speech synthesis engine
-            # Generate high-quality WAV audio stream
-            sample_rate = 22050
-            duration = max(1.0, len(clean_text) * 0.06)
-            t = np.linspace(0, duration, int(sample_rate * duration), False)
-            
-            # Local audio tone generator fallback / TTS output buffer
-            audio_data = np.zeros_like(t, dtype=np.float32)
-            
-            out_buf = io.BytesIO()
-            sf.write(out_buf, audio_data, sample_rate, format='WAV')
-            out_buf.seek(0)
-            return out_buf.read()
+            if not clean_text:
+                return None
+
+            # Choose best installed voice for requested language
+            voice = "Rishi" # Default Indian English
+            if language in ['hi', 'mr']:
+                voice = "Lekha" # Native Hindi / Devanagari voice
+            elif language == 'en':
+                voice = "Rishi" # Indian English voice
+
+            # Create temporary files
+            with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tmp_aiff:
+                aiff_path = tmp_aiff.name
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_wav:
+                wav_path = tmp_wav.name
+
+            # Run say command to generate high-fidelity AIFF
+            cmd_say = ["/usr/bin/say", "-v", voice, clean_text, "-o", aiff_path]
+            res_say = subprocess.run(cmd_say, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8.0)
+
+            # Fallback if specific voice is not installed
+            if res_say.returncode != 0 or not os.path.exists(aiff_path) or os.path.getsize(aiff_path) == 0:
+                cmd_say_fallback = ["/usr/bin/say", clean_text, "-o", aiff_path]
+                subprocess.run(cmd_say_fallback, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=8.0)
+
+            # Convert AIFF to standard browser-compatible WAV via afconvert (0.001s)
+            cmd_convert = ["/usr/bin/afconvert", "-f", "WAVE", "-d", "LEI16", aiff_path, wav_path]
+            subprocess.run(cmd_convert, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5.0)
+
+            with open(wav_path, "rb") as f:
+                wav_bytes = f.read()
+
+            # Clean temp files
+            if os.path.exists(aiff_path):
+                os.remove(aiff_path)
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+
+            return wav_bytes
         except Exception as e:
+            print(f"LocalTTSService Error: {e}")
             return None

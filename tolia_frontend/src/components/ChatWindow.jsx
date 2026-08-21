@@ -159,7 +159,8 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   };
 
-  // Utterance reference to prevent Chrome garbage collection bug
+  // Audio player and utterance references
+  const currentAudioRef = useRef(null);
   const currentUtteranceRef = useRef(null);
 
   // Preload speech synthesis voices
@@ -175,75 +176,100 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   }, []);
 
-  // Text to Speech (TTS)
+  // Text to Speech (TTS) - Dual Engine (Native Audio Stream + Web Speech Fallback)
   const speakText = (text, index) => {
-    if (!('speechSynthesis' in window)) {
-      console.warn('Text-to-speech is not supported in this browser.');
-      return;
-    }
-
+    // 1. If currently speaking this message, stop it
     if (speakingIndex === index) {
-      window.speechSynthesis.cancel();
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause();
+        currentAudioRef.current = null;
+      }
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
       setSpeakingIndex(null);
-      currentUtteranceRef.current = null;
       return;
     }
 
-    try {
+    // 2. Stop any ongoing playback from previous message
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current = null;
+    }
+    if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       window.speechSynthesis.resume();
-
-      const cleanText = text
-        .replace(/[*_#`~]/g, '')
-        .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
-        .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-        .replace(/https?:\/\/\S+/g, '')
-        .trim();
-
-      if (!cleanText) return;
-
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      currentUtteranceRef.current = utterance;
-
-      const langCode = getLangCode(lang);
-      utterance.lang = langCode;
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-
-      // Match available voice if present
-      const voices = window.speechSynthesis.getVoices();
-      if (voices && voices.length > 0) {
-        const matchingVoice = voices.find(v => v.lang === langCode)
-          || voices.find(v => v.lang.startsWith(lang))
-          || voices.find(v => v.lang.includes('IN') || v.name.includes('India') || v.name.includes('Hindi'))
-          || voices.find(v => v.lang.startsWith('en'));
-        if (matchingVoice) {
-          utterance.voice = matchingVoice;
-        }
-      }
-
-      utterance.onstart = () => {
-        setSpeakingIndex(index);
-      };
-
-      utterance.onend = () => {
-        setSpeakingIndex(null);
-        currentUtteranceRef.current = null;
-      };
-
-      utterance.onerror = (e) => {
-        console.warn('SpeechSynthesis event error:', e);
-        setSpeakingIndex(null);
-        currentUtteranceRef.current = null;
-      };
-
-      setSpeakingIndex(index);
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.error("Failed to speak text:", e);
-      setSpeakingIndex(null);
-      currentUtteranceRef.current = null;
     }
+
+    const cleanText = text
+      .replace(/[*_#`~]/g, '')
+      .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
+      .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, '')
+      .trim();
+
+    if (!cleanText) return;
+
+    setSpeakingIndex(index);
+
+    // Primary Engine: High-Fidelity Native Backend WAV Stream
+    const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(lang)}`;
+    const audio = new Audio(audioUrl);
+    currentAudioRef.current = audio;
+
+    audio.onplay = () => {
+      setSpeakingIndex(index);
+    };
+
+    audio.onended = () => {
+      setSpeakingIndex(null);
+      currentAudioRef.current = null;
+    };
+
+    audio.onerror = () => {
+      // Secondary Fallback: Browser Web Speech API
+      console.log("Native audio stream fallback to Web Speech API");
+      try {
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(cleanText);
+          currentUtteranceRef.current = utterance;
+          const langCode = getLangCode(lang);
+          utterance.lang = langCode;
+          utterance.rate = 1.0;
+          utterance.pitch = 1.0;
+
+          utterance.onend = () => {
+            setSpeakingIndex(null);
+            currentUtteranceRef.current = null;
+          };
+          utterance.onerror = () => {
+            setSpeakingIndex(null);
+            currentUtteranceRef.current = null;
+          };
+          window.speechSynthesis.speak(utterance);
+        } else {
+          setSpeakingIndex(null);
+        }
+      } catch (e) {
+        setSpeakingIndex(null);
+      }
+    };
+
+    // Trigger Play
+    audio.play().catch((err) => {
+      console.warn("Audio autoplay blocked by browser, falling back to Web Speech:", err);
+      // Fallback
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        currentUtteranceRef.current = utterance;
+        utterance.lang = getLangCode(lang);
+        utterance.onend = () => setSpeakingIndex(null);
+        utterance.onerror = () => setSpeakingIndex(null);
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setSpeakingIndex(null);
+      }
+    });
   };
 
   const copyToClipboard = (text, index) => {

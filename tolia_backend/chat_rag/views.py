@@ -136,3 +136,30 @@ class VoiceTranscribeView(APIView):
         else:
             return Response({'error': result.get('error', 'Transcription failed')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+from django.http import HttpResponse
+
+class VoiceSynthesizeView(APIView):
+    """Local Text-to-Speech (TTS) endpoint returning WAV audio stream."""
+    def get(self, request):
+        text = request.query_params.get('text', '').strip()
+        language = request.query_params.get('lang', 'en')
+        return self._generate_audio(text, language)
+
+    def post(self, request):
+        text = request.data.get('text', '').strip()
+        language = request.data.get('lang', 'en')
+        return self._generate_audio(text, language)
+
+    def _generate_audio(self, text, language):
+        if not text:
+            return HttpResponse(b"", content_type="audio/wav", status=400)
+        from .voice_service import LocalTTSService
+        wav_bytes = LocalTTSService.synthesize_speech(text, language=language)
+        if wav_bytes:
+            response = HttpResponse(wav_bytes, content_type="audio/wav")
+            response['Content-Length'] = len(wav_bytes)
+            response['Accept-Ranges'] = 'bytes'
+            return response
+        return HttpResponse(b"", content_type="audio/wav", status=500)
+
+
