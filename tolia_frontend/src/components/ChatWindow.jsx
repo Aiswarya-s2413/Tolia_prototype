@@ -191,60 +191,54 @@ export default function ChatWindow({ activeRole, lang }) {
 
     try {
       window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
 
-      setTimeout(() => {
-        window.speechSynthesis.resume();
+      const cleanText = text
+        .replace(/[*_#`~]/g, '')
+        .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
+        .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+        .replace(/https?:\/\/\S+/g, '')
+        .trim();
 
-        const cleanText = text
-          .replace(/[*_#`~]/g, '')
-          .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
-          .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-          .replace(/https?:\/\/\S+/g, '')
-          .trim();
+      if (!cleanText) return;
 
-        if (!cleanText) return;
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      currentUtteranceRef.current = utterance;
 
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        const langCode = getLangCode(lang);
-        utterance.lang = langCode;
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
+      const langCode = getLangCode(lang);
+      utterance.lang = langCode;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
 
-        const voices = window.speechSynthesis.getVoices();
-
-        // Smart voice selector: exact lang -> prefix lang -> Indian voice -> default
-        let selectedVoice = null;
-        if (voices && voices.length > 0) {
-          selectedVoice = voices.find(v => v.lang === langCode)
-            || voices.find(v => v.lang.startsWith(lang))
-            || voices.find(v => v.lang.includes('IN') || v.name.includes('India') || v.name.includes('Hindi'))
-            || voices.find(v => v.lang.startsWith('en'))
-            || voices[0];
+      // Match available voice if present
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        const matchingVoice = voices.find(v => v.lang === langCode)
+          || voices.find(v => v.lang.startsWith(lang))
+          || voices.find(v => v.lang.includes('IN') || v.name.includes('India') || v.name.includes('Hindi'))
+          || voices.find(v => v.lang.startsWith('en'));
+        if (matchingVoice) {
+          utterance.voice = matchingVoice;
         }
+      }
 
-        if (selectedVoice) {
-          utterance.voice = selectedVoice;
-        }
-
-        utterance.onstart = () => {
-          setSpeakingIndex(index);
-        };
-
-        utterance.onend = () => {
-          setSpeakingIndex(null);
-          currentUtteranceRef.current = null;
-        };
-
-        utterance.onerror = (e) => {
-          console.warn('SpeechSynthesis event error:', e);
-          setSpeakingIndex(null);
-          currentUtteranceRef.current = null;
-        };
-
+      utterance.onstart = () => {
         setSpeakingIndex(index);
-        window.speechSynthesis.speak(utterance);
-      }, 50);
+      };
 
+      utterance.onend = () => {
+        setSpeakingIndex(null);
+        currentUtteranceRef.current = null;
+      };
+
+      utterance.onerror = (e) => {
+        console.warn('SpeechSynthesis event error:', e);
+        setSpeakingIndex(null);
+        currentUtteranceRef.current = null;
+      };
+
+      setSpeakingIndex(index);
+      window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.error("Failed to speak text:", e);
       setSpeakingIndex(null);
