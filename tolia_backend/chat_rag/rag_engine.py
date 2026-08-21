@@ -67,7 +67,7 @@ def normalize_voice_query(query_text):
         (r'\b(rolin|rooling|roling)\b', 'rolling'),
         (r'\b(gear box)\b', 'gearbox'),
         (r'\b(hidraulic|hydralic|hydroulic)\b', 'hydraulic'),
-        (r'\b(safty|saftey|safe req|safeties|safety)\b', 'safety'),
+        (r'\b(safty|saftey|safe|safe req|safeties|safety)\b', 'safety'),
         (r'\b(temprature|temperatue|temp)\b', 'temperature'),
         (r'\b(helmit|halmet)\b', 'helmet'),
         (r'\b(corosion|corrosive)\b', 'corrosion'),
