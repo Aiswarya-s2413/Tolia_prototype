@@ -765,16 +765,6 @@ export default function ChatWindow({ activeRole, lang }) {
                   : (lang === 'hi' ? 'वॉयस मोड तैयार — बोलकर प्रश्न पूछें' : lang === 'mr' ? 'व्हॉईस मोड तयार — बोलून प्रश्न विचारा' : 'Voice Mode Ready — Tap & Speak')}
               </span>
             </div>
-
-            {/* WebSocket Connection Badge */}
-            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-mono font-medium transition-all ${
-              wsConnected
-                ? 'bg-cyan-950/50 text-cyan-400 border-cyan-500/40 shadow-sm shadow-cyan-500/10'
-                : 'bg-amber-950/40 text-amber-400 border-amber-500/40'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-cyan-400 animate-pulse' : 'bg-amber-400'}`}></span>
-              <span>{wsConnected ? '⚡ WebSocket Active' : '🔄 SSE Stream Mode'}</span>
-            </div>
           </div>
 
           {/* Central Pulsing AI Voice Orb */}
@@ -898,24 +888,6 @@ export default function ChatWindow({ activeRole, lang }) {
               <Square className="w-3.5 h-3.5 fill-current" />
               <span>{lang === 'hi' ? 'बंद करें' : lang === 'mr' ? 'बंद करा' : 'Stop'}</span>
             </button>
-
-            {/* Smart Auto-Silence Voice Indicator (ChatGPT style) */}
-            <div
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-sm border ${
-                isListening
-                  ? 'bg-rose-950/60 text-rose-300 border-rose-500/50 animate-pulse'
-                  : 'bg-slate-800/90 text-slate-300 border-slate-700/80'
-              }`}
-              title="ChatGPT-style Voice Turn: Auto-detects speech pauses and auto-submits"
-            >
-              <span className={`w-2 h-2 rounded-full ${isListening ? 'bg-rose-400 animate-ping' : 'bg-emerald-400'}`}></span>
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span>
-                {isListening
-                  ? (lang === 'hi' ? 'बोलिए (रुकने पर सबमिट होगा)' : lang === 'mr' ? 'बोला (थांबल्यावर सबमिट होईल)' : 'Listening (auto-sends on pause)')
-                  : (lang === 'hi' ? 'स्मार्ट वॉयस: सक्रिय' : lang === 'mr' ? 'स्मार्ट व्हॉईस: सक्रिय' : 'Smart Auto-Silence: Active')}
-              </span>
-            </div>
           </div>
 
           {/* Live Speech Recognition Transcript Box */}
