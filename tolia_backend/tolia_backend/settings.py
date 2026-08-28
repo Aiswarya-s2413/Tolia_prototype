@@ -14,6 +14,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -26,6 +27,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'pgvector',
+    'channels',
 
     # Custom apps
     'chat_rag',
@@ -60,6 +62,13 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'tolia_backend.wsgi.application'
+ASGI_APPLICATION = 'tolia_backend.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
 
 DATABASES = {
     'default': {
@@ -98,3 +107,8 @@ REST_FRAMEWORK = {
 # Local LLM settings
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5:7b')
+
+# VEXYL-STT Speech-to-Text Server settings (AI4Bharat Indic-Conformer 600M)
+VEXYL_STT_URL = os.getenv('VEXYL_STT_URL', 'http://localhost:8001')
+VEXYL_STT_API_KEY = os.getenv('VEXYL_STT_API_KEY', '')
+

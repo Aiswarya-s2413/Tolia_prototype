@@ -39,6 +39,40 @@ class ChatAPIView(APIView):
             'timestamp': chat_log.created_at
         })
 
+from django.http import StreamingHttpResponse
+
+class ChatStreamView(APIView):
+    """
+    Server-Sent Events (SSE) streaming endpoint for zero-latency token & sentence-pipelined voice streaming.
+    """
+    def post(self, request):
+        query = request.data.get('query', '').strip()
+        user_role = request.data.get('user_role', Department.CEO)
+        target_lang = request.data.get('language', None)
+
+        if not query:
+            return Response({'error': 'Query text is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stream_gen = LocalRAGEngine.query_stream(user_query=query, user_role=user_role, target_lang=target_lang)
+        response = StreamingHttpResponse(stream_gen, content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
+    def get(self, request):
+        query = request.query_params.get('query', '').strip()
+        user_role = request.query_params.get('user_role', Department.CEO)
+        target_lang = request.query_params.get('language', None)
+
+        if not query:
+            return Response({'error': 'Query text is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        stream_gen = LocalRAGEngine.query_stream(user_query=query, user_role=user_role, target_lang=target_lang)
+        response = StreamingHttpResponse(stream_gen, content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
 class DocumentListCreateView(APIView):
     def get(self, request):
         user_role = request.query_params.get('role', Department.CEO)
@@ -152,14 +186,15 @@ class VoiceSynthesizeView(APIView):
 
     def _generate_audio(self, text, language):
         if not text:
-            return HttpResponse(b"", content_type="audio/wav", status=400)
+            return HttpResponse(b"", content_type="audio/mpeg", status=400)
         from .voice_service import LocalTTSService
-        wav_bytes = LocalTTSService.synthesize_speech(text, language=language)
-        if wav_bytes:
-            response = HttpResponse(wav_bytes, content_type="audio/wav")
-            response['Content-Length'] = len(wav_bytes)
+        audio_bytes = LocalTTSService.synthesize_speech(text, language=language)
+        if audio_bytes:
+            content_type = "audio/wav" if audio_bytes.startswith(b"RIFF") else "audio/mpeg"
+            response = HttpResponse(audio_bytes, content_type=content_type)
+            response['Content-Length'] = len(audio_bytes)
             response['Accept-Ranges'] = 'bytes'
             return response
-        return HttpResponse(b"", content_type="audio/wav", status=500)
+        return HttpResponse(b"", content_type="audio/mpeg", status=500)
 
 

@@ -5,6 +5,9 @@ import {
   MicOff, 
   Volume2, 
   VolumeX, 
+  Play,
+  Pause,
+  Square,
   ShieldAlert, 
   FileText, 
   Bot, 
@@ -42,14 +45,19 @@ export default function ChatWindow({ activeRole, lang }) {
   const [isListening, setIsListening] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true); // Voice is primary, so default to ON
   const [speakingIndex, setSpeakingIndex] = useState(null);
+  const [isVoicePaused, setIsVoicePaused] = useState(false);
+  const [activeAudioEngine, setActiveAudioEngine] = useState(null); // 'html5' | 'webspeech' | null
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [expandedSourceIndex, setExpandedSourceIndex] = useState(null);
   const [showTextInput, setShowTextInput] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false); // Live WebSocket status
 
   const messagesContainerRef = useRef(null);
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const wsRef = useRef(null);
+  const currentMsgHandlerRef = useRef(null);
 
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
@@ -73,12 +81,81 @@ export default function ChatWindow({ activeRole, lang }) {
   const [liveTranscript, setLiveTranscript] = useState('');
   const silenceTimerRef = useRef(null);
 
-  // Speech Recognition (STT) setup with auto-submit & interim streaming
+  // Persistent Full-Duplex WebSocket Connection
+  useEffect(() => {
+    let socket = null;
+    let reconnectTimeout = null;
+    let isComponentMounted = true;
+
+    const connectWebSocket = () => {
+      try {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // Connect directly to backend port 8000 in dev or relative host in production
+        const host = window.location.port === '5173' ? `${window.location.hostname}:8000` : window.location.host;
+        const wsUrl = `${protocol}//${host}/ws/chat/`;
+
+        socket = new WebSocket(wsUrl);
+        wsRef.current = socket;
+
+        socket.onopen = () => {
+          if (!isComponentMounted) return;
+          console.log('⚡ Full-Duplex WebSocket Connected to Tolia Backend');
+          setWsConnected(true);
+        };
+
+        socket.onmessage = (event) => {
+          if (!isComponentMounted) return;
+          try {
+            const data = JSON.parse(event.data);
+            if (currentMsgHandlerRef.current) {
+              currentMsgHandlerRef.current(data);
+            }
+          } catch (e) {
+            console.warn('WS message parse error:', e);
+          }
+        };
+
+        socket.onerror = (err) => {
+          console.warn('WebSocket status:', err);
+          if (isComponentMounted) setWsConnected(false);
+        };
+
+        socket.onclose = () => {
+          if (isComponentMounted) {
+            setWsConnected(false);
+            reconnectTimeout = setTimeout(connectWebSocket, 3000);
+          }
+        };
+      } catch (err) {
+        console.warn('WebSocket init failed:', err);
+        if (isComponentMounted) setWsConnected(false);
+      }
+    };
+
+    connectWebSocket();
+
+    return () => {
+      isComponentMounted = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+    };
+  }, []);
+
+  // Audio player, utterance, and streaming queue references
+  const currentAudioRef = useRef(null);
+  const currentUtteranceRef = useRef(null);
+  const abortControllerRef = useRef(null);
+  const audioQueueRef = useRef([]);
+  const isPlayingQueueRef = useRef(false);
+
+  // Speech Recognition (STT) setup with ChatGPT-style Auto-Silence & Interim Streaming
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = getLangCode(lang);
 
@@ -89,30 +166,37 @@ export default function ChatWindow({ activeRole, lang }) {
 
       recognition.onresult = (event) => {
         let currentTranscript = '';
-        let isFinal = false;
+        let isFinalChunk = false;
 
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
+        for (let i = 0; i < event.results.length; ++i) {
           currentTranscript += event.results[i][0].transcript;
           if (event.results[i].isFinal) {
-            isFinal = true;
+            isFinalChunk = true;
           }
         }
 
-        if (currentTranscript) {
+        if (currentTranscript.trim()) {
           setLiveTranscript(currentTranscript);
           setInputQuery(currentTranscript);
-        }
 
-        if (isFinal && currentTranscript.trim()) {
-          setIsListening(false);
-          setLiveTranscript('');
-          handleSendMessage(currentTranscript.trim());
+          // ChatGPT-style Auto-Silence: automatically submit after 1.4s of quiet
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            if (currentTranscript.trim()) {
+              try { recognition.stop(); } catch(e) {}
+              setIsListening(false);
+              setLiveTranscript('');
+              handleSendMessage(currentTranscript.trim());
+            }
+          }, 1400);
         }
       };
 
       recognition.onerror = (err) => {
-        console.warn('Speech recognition status:', err.error);
-        setIsListening(false);
+        console.warn('Speech recognition notice:', err.error);
+        if (err.error !== 'no-speech') {
+          setIsListening(false);
+        }
       };
 
       recognition.onend = () => {
@@ -123,13 +207,79 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   }, [lang]);
 
+  const startMediaRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'audio.webm');
+        formData.append('language', lang);
+
+        try {
+          const res = await fetch('/api/voice/transcribe/', {
+            method: 'POST',
+            body: formData,
+          });
+          const data = await res.json();
+          if (data && data.text && data.text.trim()) {
+            setInputQuery(data.text);
+            handleSendMessage(data.text.trim());
+          }
+        } catch (err) {
+          console.error('VEXYL-STT transcription error:', err);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsListening(true);
+      setLiveTranscript(lang === 'hi' ? 'बोलिए...' : lang === 'mr' ? 'बोला...' : 'Listening...');
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+    }
+  };
+
+  const stopMediaRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+      if (mediaRecorderRef.current.stream) {
+        mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+      }
+    }
+    setIsListening(false);
+    setLiveTranscript('');
+  };
+
+  // Fluid Voice Toggle & Barge-In (Tap to Speak / Tap to Interrupt)
   const toggleListening = () => {
+    // 1. If bot is speaking, tap instantly interrupts AI and starts listening
+    const isBotSpeaking = isPlayingQueueRef.current || (currentAudioRef.current && !currentAudioRef.current.paused) || (window.speechSynthesis && window.speechSynthesis.speaking) || speakingIndex !== null;
+    if (isBotSpeaking) {
+      stopVoice();
+    }
+
     if (isListening) {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (recognitionRef.current) {
         try { recognitionRef.current.stop(); } catch(e) {}
       }
+      stopMediaRecording();
       setIsListening(false);
+      if (inputQuery.trim()) {
+        handleSendMessage(inputQuery.trim());
+      }
     } else {
+      stopVoice();
       if (recognitionRef.current) {
         try {
           recognitionRef.current.lang = getLangCode(lang);
@@ -137,31 +287,14 @@ export default function ChatWindow({ activeRole, lang }) {
           setIsListening(true);
           setLiveTranscript('');
         } catch (e) {
-          console.error("Speech recognition start failed:", e);
-          try {
-            recognitionRef.current.stop();
-            setTimeout(() => {
-              recognitionRef.current.lang = getLangCode(lang);
-              recognitionRef.current.start();
-              setIsListening(true);
-            }, 200);
-          } catch(err) {}
+          console.warn("Speech recognition restart, activating VEXYL-STT backup:", e);
+          startMediaRecording();
         }
       } else {
-        alert(
-          lang === 'hi'
-            ? 'कृपया Chrome या Edge ब्राउज़र में वॉयस का उपयोग करें।'
-            : lang === 'mr'
-            ? 'कृपया Chrome किंवा Edge ब्राउझरमध्ये व्हॉईस वापरा.'
-            : 'Please use Chrome or Edge browser for voice input.'
-        );
+        startMediaRecording();
       }
     }
   };
-
-  // Audio player and utterance references
-  const currentAudioRef = useRef(null);
-  const currentUtteranceRef = useRef(null);
 
   // Preload speech synthesis voices
   const [availableVoices, setAvailableVoices] = useState([]);
@@ -176,30 +309,191 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   }, []);
 
-  // Text to Speech (TTS) - Dual Engine (Native Audio Stream + Web Speech Fallback)
-  const speakText = (text, index) => {
-    // 1. If currently speaking this message, stop it
-    if (speakingIndex === index) {
-      if (currentAudioRef.current) {
+  // Stop all active voice audio and cancel streaming (Zero-Latency Barge-In)
+  const stopVoice = () => {
+    // 1. Send instant cancel frame over WebSocket to halt backend RAG/LLM immediately
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ action: 'cancel' }));
+      } catch (e) {}
+    }
+
+    // 2. Abort in-flight SSE stream
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch (e) {}
+      abortControllerRef.current = null;
+    }
+
+    // 2. Clear sentence audio queue
+    audioQueueRef.current.forEach((item) => {
+      if (item.audio) {
+        try { item.audio.pause(); item.audio.src = ''; } catch (e) {}
+      }
+    });
+    audioQueueRef.current = [];
+    isPlayingQueueRef.current = false;
+
+    // 3. Stop active HTML5 audio
+    if (currentAudioRef.current) {
+      try {
         currentAudioRef.current.pause();
-        currentAudioRef.current = null;
-      }
-      if ('speechSynthesis' in window) {
+        currentAudioRef.current.src = '';
+      } catch (e) {}
+      currentAudioRef.current = null;
+    }
+
+    // 4. Cancel Web Speech
+    if ('speechSynthesis' in window) {
+      try {
         window.speechSynthesis.cancel();
-      }
+      } catch (e) {}
+    }
+
+    setSpeakingIndex(null);
+    setIsVoicePaused(false);
+    setActiveAudioEngine(null);
+  };
+
+  // Play next audio sentence in queue (Gapless Voice Pipelining)
+  const playNextInQueue = (msgIndex) => {
+    const targetIdx = msgIndex !== undefined && msgIndex !== null ? msgIndex : getLatestBotMessageIndex();
+
+    if (audioQueueRef.current.length === 0) {
+      isPlayingQueueRef.current = false;
+      setActiveAudioEngine(null);
       setSpeakingIndex(null);
       return;
     }
 
-    // 2. Stop any ongoing playback from previous message
-    if (currentAudioRef.current) {
+    isPlayingQueueRef.current = true;
+    const nextItem = audioQueueRef.current.shift();
+    if (!nextItem || !nextItem.audio) return;
+
+    const audio = nextItem.audio;
+    currentAudioRef.current = audio;
+
+    audio.onplay = () => {
+      setActiveAudioEngine('html5');
+      setSpeakingIndex(targetIdx);
+      setIsVoicePaused(false);
+      // Gapless pre-buffering: start downloading next audio sentence immediately while current one is playing
+      if (audioQueueRef.current.length > 0 && audioQueueRef.current[0]?.audio) {
+        try {
+          audioQueueRef.current[0].audio.load();
+        } catch (e) {}
+      }
+    };
+
+    audio.onended = () => {
+      playNextInQueue(targetIdx);
+    };
+
+    audio.onerror = () => {
+      console.warn("HTML5 audio playback error, attempting native speech synthesis fallback");
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(nextItem.text);
+        utterance.lang = getLangCode(lang);
+        utterance.onstart = () => {
+          setActiveAudioEngine('webspeech');
+          setSpeakingIndex(targetIdx);
+          setIsVoicePaused(false);
+        };
+        utterance.onend = () => playNextInQueue(targetIdx);
+        utterance.onerror = () => playNextInQueue(targetIdx);
+        window.speechSynthesis.speak(utterance);
+      } else {
+        playNextInQueue(targetIdx);
+      }
+    };
+
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((err) => {
+        console.warn("Autoplay blocked by browser policy, switching to Web Speech:", err);
+        if ('speechSynthesis' in window) {
+          const utterance = new SpeechSynthesisUtterance(nextItem.text);
+          utterance.lang = getLangCode(lang);
+          utterance.onstart = () => {
+            setActiveAudioEngine('webspeech');
+            setSpeakingIndex(targetIdx);
+            setIsVoicePaused(false);
+          };
+          utterance.onend = () => playNextInQueue(targetIdx);
+          utterance.onerror = () => playNextInQueue(targetIdx);
+          window.speechSynthesis.speak(utterance);
+        } else {
+          playNextInQueue(targetIdx);
+        }
+      });
+    }
+  };
+
+  // Queue sentence chunks for sub-second TTS playback
+  const queueSentenceForTTS = (sentenceText, msgIndex) => {
+    const cleanText = sentenceText
+      .replace(/[*_#`~]/g, '')
+      .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
+      .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, '')
+      .trim();
+
+    // Ignore tiny fragments (e.g. single numbers or symbols) to prevent fragmented audio gaps
+    if (!cleanText || cleanText.length < 8) return;
+
+    const targetIdx = msgIndex !== undefined && msgIndex !== null ? msgIndex : getLatestBotMessageIndex();
+    const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(lang)}`;
+    const audio = new Audio(audioUrl);
+    audio.preload = 'auto';
+
+    audioQueueRef.current.push({ text: cleanText, audio: audio });
+
+    if (!isPlayingQueueRef.current) {
+      playNextInQueue(targetIdx);
+    }
+  };
+
+  // Pause active voice audio
+  const pauseVoice = () => {
+    if (activeAudioEngine === 'html5' && currentAudioRef.current) {
       currentAudioRef.current.pause();
-      currentAudioRef.current = null;
+      setIsVoicePaused(true);
+    } else if ('speechSynthesis' in window && window.speechSynthesis.speaking) {
+      window.speechSynthesis.pause();
+      setIsVoicePaused(true);
     }
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+  };
+
+  // Resume paused voice audio
+  const resumeVoice = () => {
+    if (activeAudioEngine === 'html5' && currentAudioRef.current) {
+      currentAudioRef.current.play().catch((err) => {
+        console.warn("Resume audio playback failed:", err);
+      });
+      setIsVoicePaused(false);
+    } else if ('speechSynthesis' in window && (window.speechSynthesis.paused || isVoicePaused)) {
       window.speechSynthesis.resume();
+      setIsVoicePaused(false);
     }
+  };
+
+  // Get latest bot response index
+  const getLatestBotMessageIndex = () => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].sender === 'bot') return i;
+    }
+    return -1;
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopVoice();
+    };
+  }, []);
+
+  // Text to Speech (TTS) - For manual replay or full playback
+  const speakText = (text, index) => {
+    stopVoice();
 
     const cleanText = text
       .replace(/[*_#`~]/g, '')
@@ -208,68 +502,82 @@ export default function ChatWindow({ activeRole, lang }) {
       .replace(/https?:\/\/\S+/g, '')
       .trim();
 
-    if (!cleanText) return;
+    if (!cleanText) {
+      stopVoice();
+      return;
+    }
 
-    setSpeakingIndex(index);
+    const targetIdx = index !== undefined && index !== null && index >= 0 ? index : getLatestBotMessageIndex();
 
-    // Primary Engine: High-Fidelity Native Backend WAV Stream
+    // 1. Try High-Speed Backend Voice (/api/voice/synthesize/)
     const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(lang)}`;
     const audio = new Audio(audioUrl);
     currentAudioRef.current = audio;
 
     audio.onplay = () => {
-      setSpeakingIndex(index);
+      setActiveAudioEngine('html5');
+      setSpeakingIndex(targetIdx);
+      setIsVoicePaused(false);
     };
 
     audio.onended = () => {
-      setSpeakingIndex(null);
-      currentAudioRef.current = null;
+      stopVoice();
     };
 
     audio.onerror = () => {
-      // Secondary Fallback: Browser Web Speech API
-      console.log("Native audio stream fallback to Web Speech API");
-      try {
-        if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(cleanText);
-          currentUtteranceRef.current = utterance;
-          const langCode = getLangCode(lang);
-          utterance.lang = langCode;
-          utterance.rate = 1.0;
-          utterance.pitch = 1.0;
+      console.warn("Backend audio error, falling back to Web Speech Synthesis");
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = getLangCode(lang);
 
-          utterance.onend = () => {
-            setSpeakingIndex(null);
-            currentUtteranceRef.current = null;
-          };
-          utterance.onerror = () => {
-            setSpeakingIndex(null);
-            currentUtteranceRef.current = null;
-          };
-          window.speechSynthesis.speak(utterance);
-        } else {
-          setSpeakingIndex(null);
-        }
-      } catch (e) {
-        setSpeakingIndex(null);
+        utterance.onstart = () => {
+          setActiveAudioEngine('webspeech');
+          setSpeakingIndex(targetIdx);
+          setIsVoicePaused(false);
+        };
+
+        utterance.onend = () => {
+          stopVoice();
+        };
+
+        utterance.onerror = () => {
+          stopVoice();
+        };
+
+        currentUtteranceRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
       }
     };
 
-    // Trigger Play
-    audio.play().catch((err) => {
-      console.warn("Audio autoplay blocked by browser, falling back to Web Speech:", err);
-      // Fallback
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        currentUtteranceRef.current = utterance;
-        utterance.lang = getLangCode(lang);
-        utterance.onend = () => setSpeakingIndex(null);
-        utterance.onerror = () => setSpeakingIndex(null);
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setSpeakingIndex(null);
-      }
-    });
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch((err) => {
+        console.warn("Autoplay rejected by browser, switching to Web Speech:", err);
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(cleanText);
+          utterance.lang = getLangCode(lang);
+
+          utterance.onstart = () => {
+            setActiveAudioEngine('webspeech');
+            setSpeakingIndex(targetIdx);
+            setIsVoicePaused(false);
+          };
+
+          utterance.onend = () => {
+            stopVoice();
+          };
+
+          utterance.onerror = () => {
+            stopVoice();
+          };
+
+          currentUtteranceRef.current = utterance;
+          window.speechSynthesis.speak(utterance);
+        }
+      });
+    }
   };
 
   const copyToClipboard = (text, index) => {
@@ -278,75 +586,132 @@ export default function ChatWindow({ activeRole, lang }) {
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
+  // Zero-Latency Streaming + Pipelined Voice Message Handler
   const handleSendMessage = async (queryToSend) => {
     const query = (queryToSend || inputQuery).trim();
     if (!query || isLoading) return;
 
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.resume();
-    }
+    // Zero-Latency Barge-In: immediately cut off any playing speech
+    stopVoice();
 
+    const botMsgId = 'bot_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
     const userMsg = {
+      id: 'usr_' + Date.now(),
       sender: 'user',
       text: query,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
 
-    setMessages(prev => [...prev, userMsg]);
+    const initialBotMsg = {
+      id: botMsgId,
+      sender: 'bot',
+      text: '',
+      sources: [],
+      access_blocked: false,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isStreaming: true
+    };
+
+    setMessages(prev => [...prev, userMsg, initialBotMsg]);
     setInputQuery('');
     setIsLoading(true);
 
+    // -------------------------------------------------------------------------
+    // High-Speed Direct Token & Voice Sentence Stream (SSE)
+    // -------------------------------------------------------------------------
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     try {
-      const response = await fetch('/api/chat/', {
+      const response = await fetch('/api/chat/stream/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: query,
           user_role: activeRole,
           language: lang
-        })
+        }),
+        signal: abortController.signal
       });
 
       if (!response.ok) {
-        throw new Error('API server error');
+        throw new Error('Streaming API server error');
       }
 
-      const data = await response.json();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let accumulatedText = '';
 
-      const botMsg = {
-        sender: 'bot',
-        text: data.response,
-        sources: data.sources || [],
-        access_blocked: data.access_blocked,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      setMessages(prev => {
-        const nextMessages = [...prev, botMsg];
-        const newMsgIndex = nextMessages.length - 1;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
 
-        if (autoSpeak) {
-          setTimeout(() => speakText(data.response, newMsgIndex), 100);
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(trimmed.slice(6));
+
+              if (data.type === 'meta') {
+                setMessages(prev => prev.map(m => m.id === botMsgId ? {
+                  ...m,
+                  sources: data.sources || [],
+                  access_blocked: data.access_blocked || false
+                } : m));
+              } else if (data.type === 'token') {
+                accumulatedText += data.token;
+                setMessages(prev => prev.map(m => m.id === botMsgId ? {
+                  ...m,
+                  text: accumulatedText
+                } : m));
+              } else if (data.type === 'sentence') {
+                if (autoSpeak && data.text) {
+                  const currentIdx = getLatestBotMessageIndex();
+                  queueSentenceForTTS(data.text, currentIdx >= 0 ? currentIdx : 1);
+                }
+              } else if (data.type === 'done') {
+                setMessages(prev => prev.map(m => m.id === botMsgId ? {
+                  ...m,
+                  isStreaming: false
+                } : m));
+                // Safety: if sentence audio did not start, trigger playback
+                if (autoSpeak && !isPlayingQueueRef.current && accumulatedText) {
+                  const currentIdx = getLatestBotMessageIndex();
+                  setTimeout(() => {
+                    if (!isPlayingQueueRef.current && speakingIndex === null) {
+                      speakText(accumulatedText, currentIdx >= 0 ? currentIdx : 1);
+                    }
+                  }, 200);
+                }
+              }
+            } catch (err) {
+              console.warn('SSE parse error:', err);
+            }
+          }
         }
-        return nextMessages;
-      });
+      }
 
     } catch (err) {
-      console.error(err);
-      setMessages(prev => [
-        ...prev,
-        {
-          sender: 'bot',
-          text: lang === 'hi'
+      if (err.name === 'AbortError') {
+        return;
+      }
+      console.error('Streaming error:', err);
+      setMessages(prev => prev.map(m => m.id === botMsgId ? {
+        ...m,
+        text: m.text || (
+          lang === 'hi'
             ? '⚠️ सर्वर से कनेक्ट करने में असमर्थ। कृपया जांचें कि बैकएंड सर्वर चल रहा है।'
             : lang === 'mr'
             ? '⚠️ सर्व्हरशी कनेक्ट करण्यात अक्षम. कृपया बॅकएंड सर्व्हर चालू असल्याची खात्री करा.'
-            : '⚠️ Unable to connect to backend server. Please verify Django server is running.',
-          sources: [],
-          access_blocked: false,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
+            : '⚠️ Unable to connect to backend server. Please verify Django server is running.'
+        ),
+        isStreaming: false
+      } : m));
     } finally {
       setIsLoading(false);
     }
@@ -384,20 +749,32 @@ export default function ChatWindow({ activeRole, lang }) {
         <div className="relative flex flex-col items-center text-center max-w-2xl mx-auto space-y-6">
           
           {/* Top Status Pill */}
-          <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700/70 text-xs font-semibold">
-            <span className="relative flex h-2.5 w-2.5">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isListening ? 'bg-rose-400' : speakingIndex !== null ? 'bg-cyan-400' : 'bg-emerald-400'} opacity-75`}></span>
-              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isListening ? 'bg-rose-500' : speakingIndex !== null ? 'bg-cyan-500' : 'bg-emerald-500'}`}></span>
-            </span>
-            <span className="text-slate-300 font-mono">
-              {isListening 
-                ? (lang === 'hi' ? 'माइक्रोफ़ोन सक्रिय: आवाज़ सुन रहा हूँ...' : lang === 'mr' ? 'मायक्रोफोन सक्रिय: ऐकत आहे...' : 'Listening to Speech...') 
-                : speakingIndex !== null 
-                ? (lang === 'hi' ? 'एआई वॉयस बोल रहा है...' : lang === 'mr' ? 'एआय व्हॉईस बोलत आहे...' : 'AI Speaking Response...')
-                : isLoading
-                ? (lang === 'hi' ? 'RAG खोज एवं विश्लेषण जारी...' : lang === 'mr' ? 'RAG शोध व विश्लेषण सुरु...' : 'RAG Vector Index Query...')
-                : (lang === 'hi' ? 'वॉयस मोड तैयार — बोलकर प्रश्न पूछें' : lang === 'mr' ? 'व्हॉईस मोड तयार — बोलून प्रश्न विचारा' : 'Voice Mode Ready — Tap & Speak')}
-            </span>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/80 border border-slate-700/70 text-xs font-semibold">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${isListening ? 'bg-rose-400' : speakingIndex !== null ? 'bg-cyan-400' : 'bg-emerald-400'} opacity-75`}></span>
+                <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isListening ? 'bg-rose-500' : speakingIndex !== null ? 'bg-cyan-500' : 'bg-emerald-500'}`}></span>
+              </span>
+              <span className="text-slate-300 font-mono">
+                {isListening 
+                  ? (lang === 'hi' ? 'माइक्रोफ़ोन सक्रिय: आवाज़ सुन रहा हूँ...' : lang === 'mr' ? 'मायक्रोफोन सक्रिय: ऐकत आहे...' : 'Listening to Speech...') 
+                  : speakingIndex !== null 
+                  ? (lang === 'hi' ? 'एआई वॉयस बोल रहा है...' : lang === 'mr' ? 'एआय व्हॉईस बोलत आहे...' : 'AI Speaking Response...')
+                  : isLoading
+                  ? (lang === 'hi' ? 'RAG खोज एवं विश्लेषण जारी...' : lang === 'mr' ? 'RAG शोध व विश्लेषण सुरु...' : 'RAG Vector Index Query...')
+                  : (lang === 'hi' ? 'वॉयस मोड तैयार — बोलकर प्रश्न पूछें' : lang === 'mr' ? 'व्हॉईस मोड तयार — बोलून प्रश्न विचारा' : 'Voice Mode Ready — Tap & Speak')}
+              </span>
+            </div>
+
+            {/* WebSocket Connection Badge */}
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-mono font-medium transition-all ${
+              wsConnected
+                ? 'bg-cyan-950/50 text-cyan-400 border-cyan-500/40 shadow-sm shadow-cyan-500/10'
+                : 'bg-amber-950/40 text-amber-400 border-amber-500/40'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${wsConnected ? 'bg-cyan-400 animate-pulse' : 'bg-amber-400'}`}></span>
+              <span>{wsConnected ? '⚡ WebSocket Active' : '🔄 SSE Stream Mode'}</span>
+            </div>
           </div>
 
           {/* Central Pulsing AI Voice Orb */}
@@ -453,6 +830,94 @@ export default function ChatWindow({ activeRole, lang }) {
             <span className={`w-1.5 rounded-full transition-all duration-200 ${isListening ? 'bg-rose-400 wave-bar-6' : speakingIndex !== null ? 'bg-cyan-400 wave-bar-6' : 'h-1.5 bg-slate-700'}`}></span>
           </div>
 
+          {/* Main Voice Audio Controls Bar (Play, Pause, Resume, Stop) */}
+          <div className="flex flex-wrap items-center justify-center gap-2.5 p-2 bg-slate-950/80 border border-cyan-500/30 rounded-2xl shadow-lg backdrop-blur-md">
+            {/* Play Button */}
+            <button
+              onClick={() => {
+                if (speakingIndex !== null && isVoicePaused) {
+                  resumeVoice();
+                } else {
+                  const idx = getLatestBotMessageIndex();
+                  if (idx >= 0) speakText(messages[idx].text, idx);
+                }
+              }}
+              disabled={isLoading || getLatestBotMessageIndex() === -1}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                speakingIndex !== null && !isVoicePaused
+                  ? 'bg-cyan-600/30 text-cyan-300 border border-cyan-500/50'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-cyan-500/40 disabled:opacity-40 disabled:hover:bg-slate-800'
+              }`}
+              title="Play AI Voice Response"
+            >
+              <Play className="w-3.5 h-3.5 fill-current text-cyan-400" />
+              <span>{lang === 'hi' ? 'प्ले' : lang === 'mr' ? 'प्ले' : 'Play'}</span>
+            </button>
+
+            {/* Pause Button */}
+            <button
+              onClick={pauseVoice}
+              disabled={speakingIndex === null || isVoicePaused}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                speakingIndex !== null && !isVoicePaused
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30 border border-amber-500'
+                  : 'bg-slate-800 text-slate-500 border border-slate-800/80 cursor-not-allowed opacity-40'
+              }`}
+              title="Pause Voice Audio"
+            >
+              <Pause className="w-3.5 h-3.5 fill-current" />
+              <span>{lang === 'hi' ? 'रोकें' : lang === 'mr' ? 'थांबवा' : 'Pause'}</span>
+            </button>
+
+            {/* Resume Button */}
+            <button
+              onClick={resumeVoice}
+              disabled={speakingIndex === null || !isVoicePaused}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                speakingIndex !== null && isVoicePaused
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30 border border-emerald-500 animate-pulse'
+                  : 'bg-slate-800 text-slate-500 border border-slate-800/80 cursor-not-allowed opacity-40'
+              }`}
+              title="Resume Voice Audio"
+            >
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>{lang === 'hi' ? 'पुनः चालू' : lang === 'mr' ? 'पुढे सुरू' : 'Resume'}</span>
+            </button>
+
+            {/* Stop Button */}
+            <button
+              onClick={stopVoice}
+              disabled={speakingIndex === null}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                speakingIndex !== null
+                  ? 'bg-rose-600/90 hover:bg-rose-600 text-white shadow-rose-600/30 border border-rose-500'
+                  : 'bg-slate-800 text-slate-500 border border-slate-800/80 cursor-not-allowed opacity-40'
+              }`}
+              title="Stop Voice Audio"
+            >
+              <Square className="w-3.5 h-3.5 fill-current" />
+              <span>{lang === 'hi' ? 'बंद करें' : lang === 'mr' ? 'बंद करा' : 'Stop'}</span>
+            </button>
+
+            {/* Smart Auto-Silence Voice Indicator (ChatGPT style) */}
+            <div
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-sm border ${
+                isListening
+                  ? 'bg-rose-950/60 text-rose-300 border-rose-500/50 animate-pulse'
+                  : 'bg-slate-800/90 text-slate-300 border-slate-700/80'
+              }`}
+              title="ChatGPT-style Voice Turn: Auto-detects speech pauses and auto-submits"
+            >
+              <span className={`w-2 h-2 rounded-full ${isListening ? 'bg-rose-400 animate-ping' : 'bg-emerald-400'}`}></span>
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span>
+                {isListening
+                  ? (lang === 'hi' ? 'बोलिए (रुकने पर सबमिट होगा)' : lang === 'mr' ? 'बोला (थांबल्यावर सबमिट होईल)' : 'Listening (auto-sends on pause)')
+                  : (lang === 'hi' ? 'स्मार्ट वॉयस: सक्रिय' : lang === 'mr' ? 'स्मार्ट व्हॉईस: सक्रिय' : 'Smart Auto-Silence: Active')}
+              </span>
+            </div>
+          </div>
+
           {/* Live Speech Recognition Transcript Box */}
           {isListening && (
             <div className="w-full bg-rose-950/40 border border-rose-500/50 rounded-2xl p-4 text-center animate-pulse">
@@ -494,7 +959,7 @@ export default function ChatWindow({ activeRole, lang }) {
             {/* Auto-Voice Output Switch */}
             <button
               onClick={() => {
-                if (speakingIndex !== null) window.speechSynthesis.cancel();
+                if (speakingIndex !== null) stopVoice();
                 setAutoSpeak(!autoSpeak);
               }}
               className={`px-3 py-1.5 rounded-lg border flex items-center gap-1.5 font-semibold transition-all ${
@@ -564,8 +1029,7 @@ export default function ChatWindow({ activeRole, lang }) {
 
           <button 
             onClick={() => {
-              window.speechSynthesis.cancel();
-              setSpeakingIndex(null);
+              stopVoice();
               setMessages([getInitialWelcomeMessage(lang)]);
             }}
             className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-all border border-slate-700/60"
@@ -613,9 +1077,19 @@ export default function ChatWindow({ activeRole, lang }) {
                     </div>
                   )}
 
-                  {/* Markdown Answer Text */}
+                  {/* Markdown Answer Text / Loading Indicator */}
                   <div className="text-xs sm:text-sm leading-relaxed prose prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5">
-                    <ReactMarkdown>{msg.text}</ReactMarkdown>
+                    {msg.text ? (
+                      <ReactMarkdown>{msg.text}</ReactMarkdown>
+                    ) : (
+                      <div className="flex items-center gap-2.5 py-1 text-xs text-cyan-300 font-medium">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
+                        </span>
+                        <span>{lang === 'hi' ? 'RAG विक्टर सर्च और RBAC सुरक्षा विश्लेषण जारी...' : lang === 'mr' ? 'RAG व्हेक्टर शोध व RBAC सुरक्षा पडताळणी सुरु...' : 'RAG Vector Index Search & Security RBAC Check in progress...'}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Verified Sources */}
@@ -664,81 +1138,103 @@ export default function ChatWindow({ activeRole, lang }) {
                     </div>
                   )}
 
-                  {/* Audio Controls Bar */}
-                  <div className="mt-3 pt-2.5 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-700/30">
-                    <span>{msg.timestamp}</span>
+                  {/* Message Footer (Timestamp & Copy Only) */}
+                  {msg.text && (
+                    <div className="mt-3 pt-2.5 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-700/30">
+                      <span>{msg.timestamp}</span>
 
-                    {!isUser && (
-                      <div className="flex items-center gap-2">
-                        {/* Copy */}
-                        <button
-                          onClick={() => copyToClipboard(msg.text, idx)}
-                          className="flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-700/60 text-slate-400 hover:text-slate-200 transition-all text-xs"
-                          title="Copy text"
-                        >
-                          {isCopied ? (
-                            <>
-                              <Check className="w-3.5 h-3.5 text-emerald-400" />
-                              <span className="text-emerald-400">Copied</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3.5 h-3.5" />
-                              <span>Copy</span>
-                            </>
-                          )}
-                        </button>
-
-                        {/* Dedicated Voice Play/Stop Button */}
-                        <button
-                          onClick={() => speakText(msg.text, idx)}
-                          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all shadow-sm ${
-                            isSpeaking
-                              ? 'bg-cyan-500 text-slate-950 shadow-cyan-500/40'
-                              : 'bg-slate-700/80 hover:bg-slate-700 text-cyan-300 border border-cyan-500/30'
-                          }`}
-                          title="Play Voice Audio"
-                        >
-                          {isSpeaking ? (
-                            <>
-                              <VolumeX className="w-3.5 h-3.5" />
-                              <span>Stop Voice</span>
-                            </>
-                          ) : (
-                            <>
-                              <Volume2 className="w-3.5 h-3.5" />
-                              <span>Play Voice</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                      {!isUser && (
+                        <div className="flex items-center gap-2">
+                          {/* Copy */}
+                          <button
+                            onClick={() => copyToClipboard(msg.text, idx)}
+                            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-700/60 text-slate-400 hover:text-slate-200 transition-all text-xs"
+                            title="Copy text"
+                          >
+                            {isCopied ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                <span className="text-emerald-400">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>Copy</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                 </div>
               </div>
             );
           })}
 
-          {/* Loading Indicator */}
-          {isLoading && (
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-slate-800 flex items-center justify-center text-cyan-400 border border-slate-700">
-                <Bot className="w-4 h-4 animate-spin" />
+        </div>
+
+        {/* Persistent Floating Audio Controller Dock when Voice is Active/Paused */}
+        {speakingIndex !== null && (
+          <div className="p-3.5 bg-slate-950/95 border-t border-cyan-500/40 flex items-center justify-between gap-3 backdrop-blur-md animate-in fade-in slide-in-from-bottom-2">
+            <div className="flex items-center gap-3 min-w-0">
+              {/* Visual Waveform */}
+              <div className="flex items-end gap-1 h-5 px-1">
+                <span className={`w-1 bg-cyan-400 rounded-full transition-all ${!isVoicePaused ? 'h-5 animate-pulse' : 'h-2'}`}></span>
+                <span className={`w-1 bg-cyan-300 rounded-full transition-all ${!isVoicePaused ? 'h-3 animate-bounce' : 'h-2'}`} style={{ animationDelay: '150ms' }}></span>
+                <span className={`w-1 bg-cyan-400 rounded-full transition-all ${!isVoicePaused ? 'h-4 animate-pulse' : 'h-2'}`} style={{ animationDelay: '300ms' }}></span>
+                <span className={`w-1 bg-cyan-300 rounded-full transition-all ${!isVoicePaused ? 'h-2 animate-bounce' : 'h-2'}`} style={{ animationDelay: '75ms' }}></span>
               </div>
-              <div className="bg-slate-800/90 border border-slate-700/80 px-4 py-3 rounded-2xl text-xs text-slate-300 flex items-center gap-2.5">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500"></span>
-                </span>
-                <span className="font-medium">
-                  {lang === 'hi' ? 'RAG विक्टर सर्च और RBAC सुरक्षा सत्यापन प्रगति पर...' : lang === 'mr' ? 'RAG व्हेक्टर शोध व RBAC सुरक्षा पडताळणी सुरु...' : 'RAG Vector Index Search & Security RBAC Check in progress...'}
-                </span>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                  <AudioLines className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>
+                    {isVoicePaused 
+                      ? (lang === 'hi' ? 'वॉयस ऑडियो रुका हुआ है' : lang === 'mr' ? 'व्हॉईस ऑडिओ थांबवला आहे' : 'Voice Audio Paused') 
+                      : (lang === 'hi' ? 'वॉयस ऑडियो चल रहा है...' : lang === 'mr' ? 'व्हॉईस ऑडिओ सुरू आहे...' : 'Playing Voice Audio...')}
+                  </span>
+                </div>
+                <div className="text-[11px] text-slate-400 truncate max-w-xs sm:max-w-md">
+                  {messages[speakingIndex]?.text?.replace(/[*_#`~]/g, '') || ''}
+                </div>
               </div>
             </div>
-          )}
 
-        </div>
+            {/* Controls Bar */}
+            <div className="flex items-center gap-2 shrink-0">
+              {isVoicePaused ? (
+                <button
+                  onClick={resumeVoice}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all"
+                  title="Resume Audio"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>{lang === 'hi' ? 'पुनः चालू करें' : lang === 'mr' ? 'पुढे सुरू करा' : 'Resume'}</span>
+                </button>
+              ) : (
+                <button
+                  onClick={pauseVoice}
+                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-600/30 transition-all"
+                  title="Pause Audio"
+                >
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span>{lang === 'hi' ? 'रोकें' : lang === 'mr' ? 'थांबवा' : 'Pause'}</span>
+                </button>
+              )}
+
+              <button
+                onClick={stopVoice}
+                className="px-3 py-1.5 rounded-lg bg-rose-600/90 hover:bg-rose-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-rose-600/30 transition-all"
+                title="Stop Audio"
+              >
+                <Square className="w-3 h-3 fill-current" />
+                <span>{lang === 'hi' ? 'बंद करें' : lang === 'mr' ? 'बंद करा' : 'Stop'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+
       </div>
 
     </div>

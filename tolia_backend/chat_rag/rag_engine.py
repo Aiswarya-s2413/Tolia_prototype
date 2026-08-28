@@ -164,13 +164,89 @@ class LocalRAGEngine:
                 "language": target_lang
             }
 
-        # Candidate chunks filtered by RBAC
-        all_allowed_chunks = list(
-            DocumentChunk.objects.select_related('document')
-            .filter(required_department__in=allowed_deps)
+    @staticmethod
+    def retrieve_top_chunks(user_query, allowed_deps, top_k=3):
+        """
+        Native PostgreSQL pgvector HNSW vector search combined with lexical plant keyword scoring (Hybrid Search).
+        """
+        from pgvector.django import CosineDistance
+
+        # 1. Generate query vector embedding via local Nomic embedding model
+        query_vec = get_embedding(user_query)
+
+        # 2. Base ORM queryset with RBAC department filtering
+        base_qs = DocumentChunk.objects.select_related('document').filter(
+            required_department__in=allowed_deps
         )
 
-        if not all_allowed_chunks:
+        if not base_qs.exists():
+            return []
+
+        # 3. Vector distance computation using PostgreSQL pgvector HNSW index
+        if query_vec:
+            vector_candidates = list(
+                base_qs.filter(embedding__isnull=False)
+                .annotate(distance=CosineDistance('embedding', query_vec))
+                .order_by('distance')[:15]
+            )
+        else:
+            vector_candidates = []
+
+        if not vector_candidates:
+            vector_candidates = list(base_qs[:15])
+
+        # 4. Hybrid Scoring (Vector Proximity + Lexical Synonym Precision)
+        def get_hybrid_score(chunk):
+            dist = getattr(chunk, 'distance', None)
+            vec_sim = max(0.0, 1.0 - dist) if (dist is not None) else 0.5
+            lex_score = score_chunk_relevance(user_query, chunk)
+            return (vec_sim * 15.0) + lex_score
+
+        ranked = sorted(vector_candidates, key=get_hybrid_score, reverse=True)
+        return ranked[:top_k]
+
+    @staticmethod
+    def query(user_query, user_role=Department.QC, target_lang=None):
+        """
+        Main RAG query pipeline using native pgvector search and RBAC security filtering.
+        """
+        if not target_lang:
+            target_lang = 'hi' if is_hindi(user_query) else 'en'
+            
+        allowed_deps = get_allowed_departments_for_role(user_role)
+        is_sales_q = is_sales_marketing_query(user_query)
+        
+        # Security Guardrail Check for unauthorized sales/marketing access
+        if is_sales_q and user_role != Department.CEO:
+            if target_lang == 'hi':
+                refusal_msg = (
+                    "⚠️ **सुरक्षा प्रतिबंध (Access Restricted):**\n\n"
+                    "क्षमा करें, विपणन एवं बिक्री (Marketing & Sales) का गोपनीय डेटा केवल **CEO (मुख्य कार्यकारी अधिकारी)** के लिए ही सुलभ है।\n\n"
+                    "एक Quality Control (QC) निरीक्षक के रूप में, आपके पास गुणवत्ता, सुरक्षा नियम, और परिचालन SOPs देखने की अनुमति है।"
+                )
+            elif target_lang == 'mr':
+                refusal_msg = (
+                    "⚠️ **सुरक्षा निर्बंध (Access Restricted):**\n\n"
+                    "क्षमस्व, विपणन आणि विक्री (Marketing & Sales) चा गुप्त डेटा फक्त **CEO (मुख्य कार्यकारी अधिकारी)** साठीच उपलब्ध आहे.\n\n"
+                    "Quality Control (QC) निरीक्षक म्हणून, आपल्याला गुणवत्ता, सुरक्षा नियम आणि ऑपरेशन्स दस्तऐवज पाहण्याची परवानगी आहे."
+                )
+            else:
+                refusal_msg = (
+                    "⚠️ **Security Restricted (Access Denied):**\n\n"
+                    "Apologies, confidential **Marketing & Sales** data is strictly accessible only to authorized **CEO (Chief Executive Officer)** personnel.\n\n"
+                    "As a Quality Control (QC) Inspector, you have access to Quality Testing SOPs, Operational Checklists, and Plant Safety Guidelines."
+                )
+            return {
+                "response": refusal_msg,
+                "sources": [],
+                "access_blocked": True,
+                "language": target_lang
+            }
+
+        # Candidate chunks retrieved via native pgvector HNSW search
+        top_chunks = LocalRAGEngine.retrieve_top_chunks(user_query, allowed_deps, top_k=3)
+
+        if not top_chunks:
             if target_lang == 'hi':
                 no_doc_msg = "सिस्टम में कोई प्रासंगिक दस्तावेज़ नहीं मिला। कृपया व्यवस्थापक से संपर्क करें।"
             elif target_lang == 'mr':
@@ -183,15 +259,6 @@ class LocalRAGEngine:
                 "access_blocked": False,
                 "language": target_lang
             }
-
-        # Rank candidate chunks based on query relevance
-        ranked_chunks = sorted(
-            all_allowed_chunks,
-            key=lambda c: score_chunk_relevance(user_query, c),
-            reverse=True
-        )
-
-        top_chunks = ranked_chunks[:3]
 
         sources = [
             {
@@ -212,13 +279,204 @@ class LocalRAGEngine:
             final_response = ollama_response
         else:
             final_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
-            
+
         return {
             "response": final_response,
             "sources": sources,
             "access_blocked": False,
             "language": target_lang
         }
+            
+    @staticmethod
+    def query_stream(user_query, user_role=Department.QC, target_lang=None):
+        """
+        Streaming RAG generator yielding Server-Sent Events (SSE) using native pgvector search.
+        """
+        import time
+        from .models import ChatLog
+
+        if not target_lang:
+            target_lang = 'hi' if is_hindi(user_query) else 'en'
+
+        allowed_deps = get_allowed_departments_for_role(user_role)
+        is_sales_q = is_sales_marketing_query(user_query)
+
+        # 1. Security Guardrail Check for unauthorized sales/marketing access
+        if is_sales_q and user_role != Department.CEO:
+            if target_lang == 'hi':
+                refusal_msg = (
+                    "⚠️ **सुरक्षा प्रतिबंध (Access Restricted):**\n\n"
+                    "क्षमा करें, विपणन एवं बिक्री (Marketing & Sales) का गोपनीय डेटा केवल **CEO (मुख्य कार्यकारी अधिकारी)** के लिए ही सुलभ है।\n\n"
+                    "एक Quality Control (QC) निरीक्षक के रूप में, आपके पास गुणवत्ता, सुरक्षा नियम, और परिचालन SOPs देखने की अनुमति है।"
+                )
+            elif target_lang == 'mr':
+                refusal_msg = (
+                    "⚠️ **सुरक्षा निर्बंध (Access Restricted):**\n\n"
+                    "क्षमस्व, विपणन आणि विक्री (Marketing & Sales) चा गुप्त डेटा फक्त **CEO (मुख्य कार्यकारी अधिकारी)** साठीच उपलब्ध आहे.\n\n"
+                    "Quality Control (QC) निरीक्षक म्हणून, आपल्याला गुणवत्ता, सुरक्षा नियम आणि ऑपरेशन्स दस्तऐवज पाहण्याची परवानगी आहे."
+                )
+            else:
+                refusal_msg = (
+                    "⚠️ **Security Restricted (Access Denied):**\n\n"
+                    "Apologies, confidential **Marketing & Sales** data is strictly accessible only to authorized **CEO (Chief Executive Officer)** personnel.\n\n"
+                    "As a Quality Control (QC) Inspector, you have access to Quality Testing SOPs, Operational Checklists, and Plant Safety Guidelines."
+                )
+
+            try:
+                ChatLog.objects.create(
+                    user_role=user_role,
+                    query=user_query,
+                    language=target_lang,
+                    response=refusal_msg,
+                    sources_used=[],
+                    access_blocked=True
+                )
+            except Exception:
+                pass
+
+            meta_data = {"type": "meta", "sources": [], "access_blocked": True, "language": target_lang}
+            yield f"data: {json.dumps(meta_data)}\n\n"
+            yield f"data: {json.dumps({'type': 'sentence', 'text': refusal_msg, 'sentence_index': 0})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'token': refusal_msg})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': refusal_msg})}\n\n"
+            return
+
+        # 2. Native pgvector HNSW candidate retrieval
+        top_chunks = LocalRAGEngine.retrieve_top_chunks(user_query, allowed_deps, top_k=3)
+
+        if not top_chunks:
+            if target_lang == 'hi':
+                no_doc_msg = "सिस्टम में कोई प्रासंगिक दस्तावेज़ नहीं मिला। कृपया व्यवस्थापक से संपर्क करें।"
+            elif target_lang == 'mr':
+                no_doc_msg = "सिस्टीममध्ये कोणताही संबंधित दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
+            else:
+                no_doc_msg = "No relevant documents found in the system. Please seed or upload documents."
+
+            meta_data = {"type": "meta", "sources": [], "access_blocked": False, "language": target_lang}
+            yield f"data: {json.dumps(meta_data)}\n\n"
+            yield f"data: {json.dumps({'type': 'sentence', 'text': no_doc_msg, 'sentence_index': 0})}\n\n"
+            yield f"data: {json.dumps({'type': 'token', 'token': no_doc_msg})}\n\n"
+            yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': no_doc_msg})}\n\n"
+            return
+
+        sources = [
+            {
+                "doc_title": clean_doc_title(chunk.document.title, target_lang),
+                "category": chunk.document.category,
+                "required_department": chunk.required_department,
+                "snippet": chunk.text[:180] + "..."
+            }
+            for chunk in top_chunks
+        ]
+
+        meta_data = {"type": "meta", "sources": sources, "access_blocked": False, "language": target_lang}
+        yield f"data: {json.dumps(meta_data)}\n\n"
+
+        context_text = "\n\n".join([f"Source ({clean_doc_title(c.document.title, target_lang)}): {c.text}" for c in top_chunks])
+
+        # 3. Stream Ollama tokens or synthesized fallback
+        full_response = ""
+        current_sentence = ""
+        sentence_counter = 0
+        sentence_delimiters = ['.', '।', '!', '?', '\n\n']
+
+        def is_sentence_end(text):
+            if not text:
+                return False
+            stripped = text.strip()
+            if len(stripped) < 30:
+                return False
+            return any(stripped.endswith(d) for d in sentence_delimiters) or len(stripped) > 180
+
+        ollama_streamed = False
+        try:
+            url = f"{settings.OLLAMA_BASE_URL}/api/generate"
+            if target_lang == 'hi':
+                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, helpful HINDI using the context provided below. User role: {user_role}."
+            elif target_lang == 'mr':
+                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, helpful MARATHI using the context provided below. User role: {user_role}."
+            else:
+                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, direct ENGLISH using the context provided below. User role: {user_role}."
+
+            prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context_text}\n\nUSER QUESTION:\n{user_query}\n\nANSWER:"
+
+            payload = {
+                "model": getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
+                "prompt": prompt,
+                "stream": True,
+                "options": {
+                    "temperature": 0.3,
+                    "max_tokens": 1500
+                }
+            }
+
+            res = requests.post(url, json=payload, stream=True, timeout=25.0)
+            if res.status_code == 200:
+                for line in res.iter_lines():
+                    if line:
+                        chunk_json = json.loads(line.decode('utf-8'))
+                        token = chunk_json.get("response", "")
+                        if token:
+                            ollama_streamed = True
+                            full_response += token
+                            current_sentence += token
+                            yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+
+                            if is_sentence_end(current_sentence):
+                                clean_sent = current_sentence.strip()
+                                if clean_sent:
+                                    yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+                                    sentence_counter += 1
+                                    current_sentence = ""
+                        if chunk_json.get("done", False):
+                            break
+        except Exception:
+            pass
+
+        # Fallback if Ollama was not active or produced no tokens
+        if not ollama_streamed or not full_response.strip():
+            fallback_text = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
+            full_response = fallback_text
+            
+            # Split into sentence chunks
+            parts = re.split(r'(\n\n|[।\.\?!]\s+)', fallback_text)
+            buffer = ""
+            for part in parts:
+                buffer += part
+                if any(buffer.strip().endswith(d) for d in sentence_delimiters) or len(buffer) > 100:
+                    clean_sent = buffer.strip()
+                    if clean_sent:
+                        yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+                        sentence_counter += 1
+                    for word in re.findall(r'\S+|\s+', buffer):
+                        yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
+                        time.sleep(0.015)
+                    buffer = ""
+
+            if buffer.strip():
+                clean_sent = buffer.strip()
+                yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+                for word in re.findall(r'\S+|\s+', buffer):
+                    yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
+                    time.sleep(0.015)
+        else:
+            if current_sentence.strip():
+                yield f"data: {json.dumps({'type': 'sentence', 'text': current_sentence.strip(), 'sentence_index': sentence_counter})}\n\n"
+
+        # Save query log
+        try:
+            ChatLog.objects.create(
+                user_role=user_role,
+                query=user_query,
+                language=target_lang,
+                response=full_response,
+                sources_used=sources,
+                access_blocked=False
+            )
+        except Exception:
+            pass
+
+        yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': full_response})}\n\n"
 
     @staticmethod
     def _call_ollama(query, context, lang, role):
@@ -235,7 +493,8 @@ class LocalRAGEngine:
             prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context}\n\nUSER QUESTION:\n{query}\n\nANSWER:"
             
             models_to_try = [
-                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
+                getattr(settings, 'OLLAMA_MODEL', 'qwen3.8'),
+                'qwen3.8',
                 'qwen2.5:7b',
                 'qwen2.5',
                 'llama3'
