@@ -5,18 +5,21 @@ import asyncio
 import tempfile
 import subprocess
 import edge_tts
-from faster_whisper import WhisperModel
-
 _stt_model = None
 
 def get_stt_model():
     """Lazy load faster-whisper STT model locally."""
     global _stt_model
     if _stt_model is None:
-        device = "cpu"
-        compute_type = "int8"
-        model_size = os.getenv("WHISPER_MODEL_SIZE", "base")
-        _stt_model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        try:
+            from faster_whisper import WhisperModel
+            device = "cpu"
+            compute_type = "int8"
+            model_size = os.getenv("WHISPER_MODEL_SIZE", "base")
+            _stt_model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        except Exception as e:
+            print(f"Faster-whisper load notice: {e}")
+            return None
     return _stt_model
 
 import requests
