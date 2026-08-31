@@ -103,22 +103,16 @@ def get_general_assistant_response(query_text, target_lang='en', user_role=Depar
     if target_lang == 'hi':
         return (
             "🤖 **मैं Tolia AI (टोलिया एआई) हूँ** — स्टील प्लांट एवं औद्योगिक कारखानों के लिए एक विशेष वॉयस-सक्षम AI सहायक।\n\n"
-            "🎯 **मेरा मुख्य उद्देश्य एवं प्रमुख कार्य:**\n"
-            "• 🏭 **फैक्ट्री SOPs एवं संचालन:** ब्लास्ट फर्नेस, रोलिंग मिल और क्वालिटी कंट्रोल की मानक संचालन प्रक्रियाओं की सटीक जानकारी देना।\n"
             "• 🎙️ **बहुभाषी वॉयस एवं चैट:** हिंदी, मराठी और अंग्रेजी में रीयल-टाइम शून्य-विलंबता वॉइस एवं चैट सहायता प्रदान करना।"
         )
     elif target_lang == 'mr':
         return (
             "🤖 **मी Tolia AI (टोलिया एआय) आहे** — स्टील प्लांट आणि कारखान्यांसाठी एक प्रगत व्हॉइस-सक्षम AI सहाय्यक.\n\n"
-            "🎯 **माझा मुख्य उद्देश आणि प्रमुख कार्ये:**\n"
-            "• 🏭 **फॅक्टरी SOPs व ऑपरेशन्स:** ब्लास्ट फर्नेस, रोलिंग मिल आणि स्टील गुणवत्ता चाचणीच्या अधिकृत मानक प्रक्रियांची माहिती देणे.\n"
             "• 🎙️ **बहुभाषिक व्हॉइस व चॅट:** मराठी, हिंदी आणि इंग्रजीमध्ये रिअल-टाइम व्हॉइस व टेक्स्ट सपोर्ट देणे."
         )
     else:
         return (
             "🤖 **I am Tolia AI** — a voice-enabled industrial Factory Assistant for steel plant operations.\n\n"
-            "🎯 **My Core Purpose & Functionalities:**\n"
-            "• 🏭 **Factory SOPs & Operations:** Provide step-by-step standard operating procedures and technical guidance for Blast Furnace, Rolling Mill, and Quality Control.\n"
             "• 🎙️ **Multilingual Voice & Chat:** Real-time, zero-latency speech-to-text and voice streaming in English, Hindi (हिंदी), and Marathi (मराठी)."
         )
 
