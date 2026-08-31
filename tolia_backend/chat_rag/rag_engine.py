@@ -99,21 +99,21 @@ def is_general_or_meta_query(query_text):
     return False
 
 def get_general_assistant_response(query_text, target_lang='en', user_role=Department.QC):
-    """Generate strictly accurate, precise explanation of Tolia AI purpose and capabilities."""
+    """Generate strictly accurate, precise explanation of Tolia AI purpose and capabilities without emojis."""
     if target_lang == 'hi':
         return (
-            "🤖 **मैं Tolia AI (टोलिया एआई) हूँ** — स्टील प्लांट एवं औद्योगिक कारखानों के लिए एक विशेष वॉयस-सक्षम AI सहायक।\n\n"
-            "• 🎙️ **बहुभाषी वॉयस एवं चैट:** हिंदी, मराठी और अंग्रेजी में रीयल-टाइम शून्य-विलंबता वॉइस एवं चैट सहायता प्रदान करना।"
+            "**मैं Tolia AI (टोलिया एआई) हूँ** — स्टील प्लांट एवं औद्योगिक कारखानों के लिए एक विशेष वॉयस-सक्षम AI सहायक।\n\n"
+            "• **बहुभाषी वॉयस एवं चैट:** हिंदी, मराठी और अंग्रेजी में रीयल-टाइम शून्य-विलंबता वॉइस एवं चैट सहायता प्रदान करना।"
         )
     elif target_lang == 'mr':
         return (
-            "🤖 **मी Tolia AI (टोलिया एआय) आहे** — स्टील प्लांट आणि कारखान्यांसाठी एक प्रगत व्हॉइस-सक्षम AI सहाय्यक.\n\n"
-            "• 🎙️ **बहुभाषिक व्हॉइस व चॅट:** मराठी, हिंदी आणि इंग्रजीमध्ये रिअल-टाइम व्हॉइस व टेक्स्ट सपोर्ट देणे."
+            "**मी Tolia AI (टोलिया एआय) आहे** — स्टील प्लांट आणि कारखान्यांसाठी एक प्रगत व्हॉइस-सक्षम AI सहाय्यक.\n\n"
+            "• **बहुभाषिक व्हॉइस व चॅट:** मराठी, हिंदी आणि इंग्रजीमध्ये रिअल-टाइम व्हॉइस व टेक्स्ट सपोर्ट देणे."
         )
     else:
         return (
-            "🤖 **I am Tolia AI** — a voice-enabled industrial Factory Assistant for steel plant operations.\n\n"
-            "• 🎙️ **Multilingual Voice & Chat:** Real-time, zero-latency speech-to-text and voice streaming in English, Hindi (हिंदी), and Marathi (मराठी)."
+            "**I am Tolia AI** — a voice-enabled industrial Factory Assistant for steel plant operations.\n\n"
+            "• **Multilingual Voice & Chat:** Real-time, zero-latency speech-to-text and voice streaming in English, Hindi (हिंदी), and Marathi (मराठी)."
         )
 
 def get_allowed_departments_for_role(user_role):
