@@ -151,63 +151,6 @@ export default function ChatWindow({ activeRole, lang }) {
   const isPlayingQueueRef = useRef(false);
   const hasQueuedAudioRef = useRef(false);
 
-  // Speech Recognition (STT) setup with ChatGPT-style Auto-Silence & Interim Streaming
-  useEffect(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = getLangCode(lang);
-
-      recognition.onstart = () => {
-        setIsListening(true);
-        setLiveTranscript('');
-      };
-
-      recognition.onresult = (event) => {
-        let currentTranscript = '';
-        let isFinalChunk = false;
-
-        for (let i = 0; i < event.results.length; ++i) {
-          currentTranscript += event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            isFinalChunk = true;
-          }
-        }
-
-        if (currentTranscript.trim()) {
-          setLiveTranscript(currentTranscript);
-          setInputQuery(currentTranscript);
-
-          // ChatGPT-style Auto-Silence: automatically submit after 1.4s of quiet
-          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = setTimeout(() => {
-            if (currentTranscript.trim()) {
-              try { recognition.stop(); } catch(e) {}
-              setIsListening(false);
-              setLiveTranscript('');
-              handleSendMessage(currentTranscript.trim());
-            }
-          }, 1400);
-        }
-      };
-
-      recognition.onerror = (err) => {
-        console.warn('Speech recognition notice:', err.error);
-        if (err.error !== 'no-speech') {
-          setIsListening(false);
-        }
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-    }
-  }, [lang]);
-
   const startMediaRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -247,12 +190,15 @@ export default function ChatWindow({ activeRole, lang }) {
       setLiveTranscript(lang === 'hi' ? 'बोलिए...' : lang === 'mr' ? 'बोला...' : 'Listening...');
     } catch (err) {
       console.error('Microphone access denied:', err);
+      setIsListening(false);
     }
   };
 
   const stopMediaRecording = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {}
       if (mediaRecorderRef.current.stream) {
         mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
       }
@@ -261,11 +207,78 @@ export default function ChatWindow({ activeRole, lang }) {
     setLiveTranscript('');
   };
 
+  const startSpeechRecognition = () => {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) {
+      startMediaRecording();
+      return;
+    }
+
+    try {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.abort(); } catch(e) {}
+      }
+
+      const recognition = new SpeechRec();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = getLangCode(lang);
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        setLiveTranscript(lang === 'hi' ? 'बोलिए...' : lang === 'mr' ? 'बोला...' : 'Listening...');
+      };
+
+      recognition.onresult = (event) => {
+        let currentTranscript = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+
+        if (currentTranscript.trim()) {
+          setLiveTranscript(currentTranscript);
+          setInputQuery(currentTranscript);
+
+          // Auto-submit after 1.4s of silence
+          if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = setTimeout(() => {
+            if (currentTranscript.trim()) {
+              try { recognition.stop(); } catch(e) {}
+              setIsListening(false);
+              setLiveTranscript('');
+              handleSendMessage(currentTranscript.trim());
+            }
+          }, 1400);
+        }
+      };
+
+      recognition.onerror = (err) => {
+        console.warn('Speech recognition notice:', err.error);
+        if (err.error === 'not-allowed' || err.error === 'service-not-allowed') {
+          setIsListening(false);
+          startMediaRecording();
+        } else if (err.error !== 'no-speech') {
+          setIsListening(false);
+        }
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch (err) {
+      console.warn('Speech recognition start failed, using audio recorder fallback:', err);
+      startMediaRecording();
+    }
+  };
+
   // Fluid Voice Toggle & Barge-In (Tap to Speak / Tap to Interrupt)
   const toggleListening = () => {
     unlockAudioContext();
     // 1. If bot is speaking, tap instantly interrupts AI and starts listening
-    const isBotSpeaking = isPlayingQueueRef.current || (currentAudioRef.current && !currentAudioRef.current.paused) || (window.speechSynthesis && window.speechSynthesis.speaking) || speakingIndex !== null;
+    const isBotSpeaking = isPlayingQueueRef.current || (currentAudioRef.current && !currentAudioRef.current.paused) || speakingIndex !== null;
     if (isBotSpeaking) {
       stopVoice();
     }
@@ -282,19 +295,7 @@ export default function ChatWindow({ activeRole, lang }) {
       }
     } else {
       stopVoice();
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.lang = getLangCode(lang);
-          recognitionRef.current.start();
-          setIsListening(true);
-          setLiveTranscript('');
-        } catch (e) {
-          console.warn("Speech recognition restart, activating VEXYL-STT backup:", e);
-          startMediaRecording();
-        }
-      } else {
-        startMediaRecording();
-      }
+      startSpeechRecognition();
     }
   };
 
