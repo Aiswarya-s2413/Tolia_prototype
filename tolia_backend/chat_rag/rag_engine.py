@@ -24,28 +24,33 @@ def is_sales_marketing_query(query_text):
     return any(term in query_lower for term in sales_terms)
 
 def is_general_or_meta_query(query_text):
-    """Check if query is asking about assistant capabilities, purpose, identity, or general help/greetings."""
+    """Check if query is asking about assistant capabilities, functionalities, purpose, identity, or general help/greetings."""
     q_norm = normalize_voice_query(query_text).lower().strip()
     q_clean = re.sub(r'[^\w\s\u0900-\u097F]', ' ', q_norm)
-    words = set(q_clean.split())
+    words = [w for w in q_clean.split() if w]
+    words_set = set(words)
 
+    # 1. Direct Regex Patterns
     patterns = [
         r'\b(what\s+(all\s+)?(things\s+)?can\s+you\s+do)\b',
-        r'\b(what\s+are\s+your\s+capabilities)\b',
-        r'\b(what\s+is\s+your\s+purpose)\b',
-        r'\b(what\s+is\s+its\s+purpose)\b',
-        r'\b(what\s+is\s+this\s+purpose)\b',
-        r'\b(what\s+can\s+you\s+do)\b',
+        r'\b(what\s+are\s+your\s+(functionalities|functionality|functions|features|capabilities|capability|services|tasks|roles|skills|uses))\b',
+        r'\b(what\s+is\s+your\s+(functionality|function|purpose|feature|capability|role|job|task))\b',
+        r'\b(what\s+is\s+(its|this)\s+(purpose|functionality|feature|role))\b',
+        r'\b(what\s+(functionalities|capabilities|features)\s+do\s+you\s+have)\b',
+        r'\b(what\s+can\s+you\s+do(\s+for\s+me)?)\b',
+        r'\b(what\s+do\s+you\s+do)\b',
         r'\b(who\s+are\s+you)\b',
         r'\b(what\s+is\s+tolia(\s+ai)?)\b',
-        r'\b(how\s+can\s+you\s+help(\s+me)?)\b',
-        r'\b(what\s+help\s+can\s+you\s+provide)\b',
+        r'\b(how\s+can\s+you\s+(help|assist)(\s+me)?)\b',
+        r'\b(what\s+(help|assistance)\s+can\s+you\s+provide)\b',
         r'\b(tell\s+me\s+about\s+yourself)\b',
-        r'\b(what\s+is\s+this\s+(system|bot|assistant|app))\b',
-        r'\b(how\s+does\s+this\s+(system|bot|assistant|app)\s+work)\b',
+        r'\b((explain|describe|list)\s+your\s+(features|capabilities|functionalities|functions))\b',
+        r'\b(what\s+is\s+this\s+(system|bot|assistant|app|ai))\b',
+        r'\b(how\s+does\s+this\s+(system|bot|assistant|app|ai)\s+work)\b',
+        r'\b(how\s+do\s+you\s+work)\b',
         r'\b(kya\s+kar\s+sakte\s+ho)\b',
         r'\b(tum\s+kya\s+karte\s+ho)\b',
-        r'\b(tumhara\s+(kya\s+)?uddeshya\s+hai)\b',
+        r'\b(tumhara\s+(kya\s+)?(uddeshya|kam|kaam)\s+hai)\b',
         r'\b(aap\s+kya\s+kar\s+sakte\s+hain)\b',
         r'\b(tolia\s+kya\s+hai)\b',
         r'\b(kay\s+karu\s+shakta)\b',
@@ -66,15 +71,28 @@ def is_general_or_meta_query(query_text):
         if re.search(pat, q_clean):
             return True
 
-    # General intent match
-    has_meta_q = any(w in words for w in ['what', 'who', 'how', 'kya', 'kaise', 'kay', 'kon', 'क्या', 'कैसे', 'कौन', 'काय', 'कसे'])
-    has_target = any(w in words for w in ['you', 'your', 'yourself', 'tolia', 'bot', 'assistant', 'system', 'tum', 'aap', 'tumhara', 'apka', 'tu', 'tuzi', 'tujha', 'तुम', 'आप', 'तुम्हारा', 'आपका', 'तुम्ही', 'तू', 'तुझे', 'तुझा', 'टोलिया'])
-    has_verb = any(w in words for w in ['do', 'help', 'purpose', 'features', 'capabilities', 'ability', 'abilities', 'function', 'functions', 'use', 'role', 'kar', 'kam', 'uddeshya', 'kaam', 'shakto', 'shakta', 'madat', 'upayog', 'कर', 'काम', 'उद्देश्य', 'मदद', 'करू', 'शकता', 'कार्य'])
+    # 2. Semantic Token / Stem Matching
+    meta_triggers = {'what', 'who', 'how', 'tell', 'explain', 'describe', 'list', 'show', 'kya', 'kaise', 'kay', 'kon', 'क्या', 'कैसे', 'कौन', 'काय', 'कसे'}
+    target_tokens = {'you', 'your', 'yourself', 'tolia', 'bot', 'assistant', 'system', 'app', 'ai', 'tum', 'aap', 'tumhara', 'apka', 'tu', 'tuzi', 'tujha', 'तुम', 'आप', 'तुम्हारा', 'आपका', 'तुम्ही', 'तू', 'तुझे', 'तुझा', 'टोलिया'}
+    
+    capability_stems = (
+        'functio', 'capabilit', 'featur', 'purpos', 'abilit', 'skill', 'task', 'servic',
+        'assist', 'help', 'role', 'work', 'use', 'usage',
+        'kar', 'kam', 'kaam', 'uddeshya', 'shakto', 'shakta', 'madat', 'upayog',
+        'कर', 'काम', 'उद्देश्य', 'मदद', 'करू', 'शकता', 'कार्य', 'वैशिष्ट्ये', 'क्षमता'
+    )
 
-    if has_meta_q and has_target and has_verb:
+    has_meta = any(w in meta_triggers for w in words_set)
+    has_target = any(w in target_tokens for w in words_set)
+    has_capability = any(any(w.startswith(stem) for stem in capability_stems) for w in words_set)
+
+    if (has_meta or len(words_set) <= 4) and has_target and has_capability:
         return True
 
-    # Greetings
+    if has_target and any(w in {'help', 'features', 'capabilities', 'functionalities', 'purpose', 'skills'} for w in words_set):
+        return True
+
+    # 3. Simple Greetings
     if q_clean.strip() in ['hello', 'hi', 'hey', 'namaste', 'namaskar', 'help', 'halo', 'pranam', 'नमस्ते', 'नमस्कार', 'प्रणाम']:
         return True
 
