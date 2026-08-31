@@ -9,7 +9,7 @@ from .models import Document, DocumentChunk, Department, DocumentCategory
 def is_hindi(text):
     """Detect if input text contains Devanagari script or Hindi phrasing."""
     devanagari_count = len(re.findall(r'[\u0900-\u097F]', text))
-    hindi_keywords = ['kya', 'kaise', 'kab', 'suraksha', 'kaha', 'hai', 'namaste', 'batao', 'bikri']
+    hindi_keywords = ['kya', 'kaise', 'kab', 'suraksha', 'kaha', 'hai', 'namaste', 'batao', 'bikri', 'tumhara', 'uddeshya', 'kar sakte']
     text_lower = text.lower()
     keyword_match = any(kw in text_lower for kw in hindi_keywords)
     return devanagari_count > 0 or (devanagari_count > 2) or keyword_match
@@ -22,6 +22,132 @@ def is_sales_marketing_query(query_text):
     ]
     query_lower = query_text.lower()
     return any(term in query_lower for term in sales_terms)
+
+def is_general_or_meta_query(query_text):
+    """Check if query is asking about assistant capabilities, purpose, identity, or general help/greetings."""
+    q_norm = normalize_voice_query(query_text).lower().strip()
+    q_clean = re.sub(r'[^\w\s\u0900-\u097F]', ' ', q_norm)
+    words = set(q_clean.split())
+
+    patterns = [
+        r'\b(what\s+(all\s+)?(things\s+)?can\s+you\s+do)\b',
+        r'\b(what\s+are\s+your\s+capabilities)\b',
+        r'\b(what\s+is\s+your\s+purpose)\b',
+        r'\b(what\s+is\s+its\s+purpose)\b',
+        r'\b(what\s+is\s+this\s+purpose)\b',
+        r'\b(what\s+can\s+you\s+do)\b',
+        r'\b(who\s+are\s+you)\b',
+        r'\b(what\s+is\s+tolia(\s+ai)?)\b',
+        r'\b(how\s+can\s+you\s+help(\s+me)?)\b',
+        r'\b(what\s+help\s+can\s+you\s+provide)\b',
+        r'\b(tell\s+me\s+about\s+yourself)\b',
+        r'\b(what\s+is\s+this\s+(system|bot|assistant|app))\b',
+        r'\b(how\s+does\s+this\s+(system|bot|assistant|app)\s+work)\b',
+        r'\b(kya\s+kar\s+sakte\s+ho)\b',
+        r'\b(tum\s+kya\s+karte\s+ho)\b',
+        r'\b(tumhara\s+(kya\s+)?uddeshya\s+hai)\b',
+        r'\b(aap\s+kya\s+kar\s+sakte\s+hain)\b',
+        r'\b(tolia\s+kya\s+hai)\b',
+        r'\b(kay\s+karu\s+shakta)\b',
+        r'\b(tuzi\s+mahiti)\b',
+        r'\b(tujha\s+uddesh)\b',
+        r'(क्या\s+कर\s+सकते)',
+        r'(तुम्हारा\s+उद्देश्य)',
+        r'(टोलिया\s+क्या\s+है)',
+        r'(आप\s+क्या\s+कर\s+सकते)',
+        r'(काय\s+करू\s+शकता)',
+        r'(काय\s+करतोस)',
+        r'(तुझे\s+काम\s+काय)',
+        r'(तुझा\s+उद्देश)',
+        r'(टोलिया\s+काय\s+आहे)'
+    ]
+
+    for pat in patterns:
+        if re.search(pat, q_clean):
+            return True
+
+    # General intent match
+    has_meta_q = any(w in words for w in ['what', 'who', 'how', 'kya', 'kaise', 'kay', 'kon', 'क्या', 'कैसे', 'कौन', 'काय', 'कसे'])
+    has_target = any(w in words for w in ['you', 'your', 'yourself', 'tolia', 'bot', 'assistant', 'system', 'tum', 'aap', 'tumhara', 'apka', 'tu', 'tuzi', 'tujha', 'तुम', 'आप', 'तुम्हारा', 'आपका', 'तुम्ही', 'तू', 'तुझे', 'तुझा', 'टोलिया'])
+    has_verb = any(w in words for w in ['do', 'help', 'purpose', 'features', 'capabilities', 'ability', 'abilities', 'function', 'functions', 'use', 'role', 'kar', 'kam', 'uddeshya', 'kaam', 'shakto', 'shakta', 'madat', 'upayog', 'कर', 'काम', 'उद्देश्य', 'मदद', 'करू', 'शकता', 'कार्य'])
+
+    if has_meta_q and has_target and has_verb:
+        return True
+
+    # Greetings
+    if q_clean.strip() in ['hello', 'hi', 'hey', 'namaste', 'namaskar', 'help', 'halo', 'pranam', 'नमस्ते', 'नमस्कार', 'प्रणाम']:
+        return True
+
+    return False
+
+def get_general_assistant_response(query_text, target_lang='en', user_role=Department.QC):
+    """Generate strictly accurate, comprehensive explanation of Tolia AI purpose and capabilities."""
+    if target_lang == 'hi':
+        return (
+            "🤖 **नमस्ते! मैं Tolia AI (टोलिया एआई) हूँ** — स्टील प्लांट एवं औद्योगिक कारखानों के लिए एक विशेष वॉयस-सक्षम AI सहायक।\n\n"
+            "🎯 **मेरा मुख्य उद्देश्य (Core Purpose):**\n"
+            "प्लांट ऑपरेटरों, QC निरीक्षकों, इंजीनियरों और प्रबंधन को कारखाने की मानक संचालन प्रक्रियाओं (SOPs), सुरक्षा नियमों, आपातकालीन दिशानिर्देशों और अधिकृत डेटा की **सटीक एवं सत्यापित** जानकारी तुरंत उपलब्ध कराना।\n\n"
+            "⚙️ **मैं क्या-क्या कर सकता हूँ (Key Capabilities):**\n"
+            "1. 🏭 **मानक संचालन प्रक्रियाएं (Factory SOPs):**\n"
+            "   - **ब्लास्ट फर्नेस (Blast Furnace):** परिचालन तापमान (1450°C–1550°C), गैस दबाव नियंत्रण एवं आपातकालीन शटडाउन SOP\n"
+            "   - **हैवी रोलिंग मिल (Rolling Mill):** गियरबॉक्स ल्युब्रिकेशन (ISO VG 320), हाइड्रोलिक प्रेशर (210 bar ± 5 bar) एवं कंपन सीमाएं\n"
+            "   - **स्टील गुणवत्ता परीक्षण:** रॉकवेल हार्डनेस (58–65 HRC), ASTM E18 परीक्षण मानक एवं सूक्ष्म संरचना विश्लेषण\n"
+            "2. ⚠️ **संयंत्र सुरक्षा एवं PPE अनुपालन:**\n"
+            "   - लेवल 1 अनिवार्य PPE किट (ANSI Z89.1 हेलमेट, स्टील-टो बूट, UV400 चश्मा, NRR 28dB+ ईयर मफ)\n"
+            "   - आपातकालीन वॉल्व B-4 नियंत्रण, स्नॉर्ट वॉल्व वेंटिंग, नाइट्रोजन पर्ज और असेंबली पॉइंट 2 निकासी\n"
+            "3. 🔒 **भूमिका-आधारित सुरक्षा नियंत्रण (RBAC):**\n"
+            "   - गोपनीय वाणिज्यिक बिक्री, मूल्य निर्धारण व राजस्व डेटा को केवल अधिकृत **CEO** तक सीमित रखना और QC कर्मियों को तकनीकी SOPs प्रदान करना।\n"
+            "4. 🎙️ **शून्य-विलंबता बहुभाषी वॉयस एवं चैट:**\n"
+            "   - हिंदी (हिंदी), मराठी (मराठी) और अंग्रेजी (English) में रीयल-टाइम वॉइस ट्रांसक्रिप्शन (STT) एवं वाक् संश्लेषण (TTS)।\n"
+            "5. 🔍 **दस्तावेज़ आधारित सटीक खोज (pgvector Search):**\n"
+            "   - कारखाने के आधिकारिक दस्तावेज़ों से वास्तविक व सत्यापित तथ्यों, दबाव और तापमान सीमाओं के साथ सटीक उत्तर देना।\n\n"
+            "💡 *आप मुझसे किसी भी मशीनरी SOP, सुरक्षा नियम, या संचालन प्रक्रिया के बारे में सीधे पूछ सकते हैं।* "
+            "आज मैं आपकी क्या सहायता करूँ?"
+        )
+    elif target_lang == 'mr':
+        return (
+            "🤖 **नमस्कार! मी Tolia AI (टोलिया एआय) आहे** — स्टील प्लांट आणि औद्योगिक कारखान्यांसाठी एक प्रगत व्हॉइस-सक्षम AI सहाय्यक.\n\n"
+            "🎯 **माझा मुख्य उद्देश (Core Purpose):**\n"
+            "प्लांट ऑपरेटर, QC निरीक्षक, इंजिनिअर आणि व्यवस्थापनाला कारखान्याच्या मानक कार्यप्रणाली (SOPs), सुरक्षा मार्गदर्शक तत्त्वे आणि अधिकृत डेटाची **अचूक आणि विश्वासार्ह** माहिती त्वरित देणे.\n\n"
+            "⚙️ **मी काय-काय करू शकतो (Key Capabilities):**\n"
+            "1. 🏭 **फॅक्टरी SOP मार्गदर्शक:**\n"
+            "   - **ब्लास्ट फर्नेस:** तापमान नियंत्रण (1450°C–1550°C), गॅस दाब नियंत्रण आणि आपत्कालीन शटडाउन SOP\n"
+            "   - **रोलिंग मिल:** गिअरबॉक्स ऑइल (ISO VG 320), हायड्रॉलिक दाब (210 bar ± 5 bar) आणि व्हायब्रेशन मर्यादा\n"
+            "   - **स्टील गुणवत्ता चाचणी:** रॉकवेल हार्डनेस (58–65 HRC), ASTM E18 चाचणी मानक\n"
+            "2. ⚠️ **कारखाना सुरक्षा व PPE नियम:**\n"
+            "   - अनिवार्य PPE किट (हार्ड हॅट, स्टील-टो बूट, सेफ्टी गॉगल, इअर मफ)\n"
+            "   - आपत्कालीन व्हॉल्व्ह B-4 नियंत्रण, स्नॉर्ट व्हॉल्व्ह, नायट्रोजन पर्ज आणि असेंब्ली पॉइंट २ निकासी\n"
+            "3. 🔒 **भूमिका-आधारित सुरक्षा (RBAC):**\n"
+            "   - गोपनीय विक्री/महसूल डेटा फक्त **CEO** साठी सुरक्षित ठेवणे आणि QC निरीक्षकांना तांत्रिक SOPs पुरवणे.\n"
+            "4. 🎙️ **बहुभाषिक व्हॉइस आणि चॅट सपोर्ट:**\n"
+            "   - मराठी, हिंदी आणि इंग्रजीमध्ये शून्य-विलंब व्हॉइस व टेक्स्ट संवाद.\n"
+            "5. 🔍 **दस्तऐवज आधारित अचूक शोध:**\n"
+            "   - कारखान्याच्या अधिकृत दस्तऐवजांमधून सत्यापित आकडेवारी व मानके प्रदान करणे.\n\n"
+            "💡 *तुम्ही मला कोणत्याही मशीन SOP, सुरक्षा नियम किंवा आपत्कालीन प्रक्रियेबद्दल विचारू शकता.* "
+            "आज मी कशी मदत करू शकतो?"
+        )
+    else:
+        return (
+            "🤖 **Hello! I am Tolia AI** — an intelligent, voice-enabled industrial Factory Assistant specifically built for steel plants and manufacturing operations.\n\n"
+            "🎯 **My Core Purpose:**\n"
+            "To provide plant operators, QC inspectors, maintenance engineers, and plant leadership with **strictly accurate, verified, and instant** operational intelligence, standard operating procedures (SOPs), safety compliance rules, and role-governed documentation.\n\n"
+            "⚙️ **What all I can do (Key Capabilities):**\n"
+            "1. 🏭 **Factory Standard Operating Procedures (SOPs):**\n"
+            "   - **Blast Furnace Operations:** Hearth temperatures (1450°C–1550°C), pressure monitoring, and emergency shutdown procedures.\n"
+            "   - **Rolling Mill Maintenance:** Gearbox lubrication (ISO VG 320), hydraulic clamping pressure (210 bar ± 5 bar), and vibration limits (4.5 mm/s RMS).\n"
+            "   - **Quality Control & Hardness Testing:** Rockwell Hardness (58–65 HRC), ASTM E18 standards, and microstructure integrity.\n"
+            "2. ⚠️ **Plant Safety & Emergency Protocols:**\n"
+            "   - Mandatory Level 1 Floor PPE (ANSI Z89.1 Hard Hat, Steel-Toe Boots, UV400 Goggles, NRR 28dB+ Ear Muffs).\n"
+            "   - Emergency Valve B-4 shutdown, Snort valve venting, Nitrogen purging, and Assembly Point 2 evacuation.\n"
+            "3. 🔒 **Role-Based Access Control (RBAC):**\n"
+            "   - Strict data governance: Confidential commercial sales, pricing, and revenue targets are accessible strictly to authorized **CEO** personnel, while **QC Inspectors** access technical and safety SOPs.\n"
+            "4. 🎙️ **Zero-Latency Multilingual Voice & Chat:**\n"
+            "   - Real-time speech-to-text (STT) and text-to-speech (TTS) streaming in **English**, **Hindi (हिंदी)**, and **Marathi (मराठी)**.\n"
+            "5. 🔍 **High-Precision Document Search (pgvector):**\n"
+            "   - Fast vector similarity search combined with acoustic voice-query normalization over indexed factory documents.\n\n"
+            "💡 *You can ask me any question about factory SOPs, machine operating limits, safety standards, or role-permitted reports.* "
+            "How can I assist your plant operations right now?"
+        )
 
 def get_allowed_departments_for_role(user_role):
     """Return list of required_department tags a user role is permitted to see."""
@@ -127,44 +253,6 @@ class LocalRAGEngine:
         return get_embedding(text)
 
     @staticmethod
-    def query(user_query, user_role=Department.QC, target_lang=None):
-        """
-        Main RAG query pipeline using relevance-ranked chunk search and RBAC security filtering.
-        """
-        if not target_lang:
-            target_lang = 'hi' if is_hindi(user_query) else 'en'
-            
-        allowed_deps = get_allowed_departments_for_role(user_role)
-        is_sales_q = is_sales_marketing_query(user_query)
-        
-        # Security Guardrail Check for unauthorized sales/marketing access
-        if is_sales_q and user_role != Department.CEO:
-            if target_lang == 'hi':
-                refusal_msg = (
-                    "⚠️ **सुरक्षा प्रतिबंध (Access Restricted):**\n\n"
-                    "क्षमा करें, विपणन एवं बिक्री (Marketing & Sales) का गोपनीय डेटा केवल **CEO (मुख्य कार्यकारी अधिकारी)** के लिए ही सुलभ है।\n\n"
-                    "एक Quality Control (QC) निरीक्षक के रूप में, आपके पास गुणवत्ता, सुरक्षा नियम, और परिचालन SOPs देखने की अनुमति है।"
-                )
-            elif target_lang == 'mr':
-                refusal_msg = (
-                    "⚠️ **सुरक्षा निर्बंध (Access Restricted):**\n\n"
-                    "क्षमस्व, विपणन आणि विक्री (Marketing & Sales) चा गुप्त डेटा फक्त **CEO (मुख्य कार्यकारी अधिकारी)** साठीच उपलब्ध आहे.\n\n"
-                    "Quality Control (QC) निरीक्षक म्हणून, आपल्याला गुणवत्ता, सुरक्षा नियम आणि ऑपरेशन्स दस्तऐवज पाहण्याची परवानगी आहे."
-                )
-            else:
-                refusal_msg = (
-                    "⚠️ **Security Restricted (Access Denied):**\n\n"
-                    "Apologies, confidential **Marketing & Sales** data is strictly accessible only to authorized **CEO (Chief Executive Officer)** personnel.\n\n"
-                    "As a Quality Control (QC) Inspector, you have access to Quality Testing SOPs, Operational Checklists, and Plant Safety Guidelines."
-                )
-            return {
-                "response": refusal_msg,
-                "sources": [],
-                "access_blocked": True,
-                "language": target_lang
-            }
-
-    @staticmethod
     def retrieve_top_chunks(user_query, allowed_deps, top_k=3):
         """
         Native PostgreSQL pgvector HNSW vector search combined with lexical plant keyword scoring (Hybrid Search).
@@ -209,6 +297,7 @@ class LocalRAGEngine:
     def query(user_query, user_role=Department.QC, target_lang=None):
         """
         Main RAG query pipeline using native pgvector search and RBAC security filtering.
+        Strictly accurate factory responses + general capabilities support.
         """
         if not target_lang:
             target_lang = 'hi' if is_hindi(user_query) else 'en'
@@ -216,7 +305,7 @@ class LocalRAGEngine:
         allowed_deps = get_allowed_departments_for_role(user_role)
         is_sales_q = is_sales_marketing_query(user_query)
         
-        # Security Guardrail Check for unauthorized sales/marketing access
+        # 1. Security Guardrail Check for unauthorized sales/marketing access
         if is_sales_q and user_role != Department.CEO:
             if target_lang == 'hi':
                 refusal_msg = (
@@ -243,16 +332,26 @@ class LocalRAGEngine:
                 "language": target_lang
             }
 
-        # Candidate chunks retrieved via native pgvector HNSW search
+        # 2. General / Meta Capability & Purpose Questions
+        if is_general_or_meta_query(user_query):
+            general_response = get_general_assistant_response(user_query, target_lang=target_lang, user_role=user_role)
+            return {
+                "response": general_response,
+                "sources": [],
+                "access_blocked": False,
+                "language": target_lang
+            }
+
+        # 3. Candidate chunks retrieved via native pgvector HNSW search
         top_chunks = LocalRAGEngine.retrieve_top_chunks(user_query, allowed_deps, top_k=3)
 
         if not top_chunks:
             if target_lang == 'hi':
-                no_doc_msg = "सिस्टम में कोई प्रासंगिक दस्तावेज़ नहीं मिला। कृपया व्यवस्थापक से संपर्क करें।"
+                no_doc_msg = "सिस्टम में इस प्रश्न के लिए कोई प्रासंगिक फ़ैक्टरी दस्तावेज़ नहीं मिला। कृपया आवश्यक SOPs अपलोड करें या व्यवस्थापक से संपर्क करें।"
             elif target_lang == 'mr':
-                no_doc_msg = "सिस्टीममध्ये कोणताही संबंधित दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
+                no_doc_msg = "सिस्टीममध्ये या प्रश्नासाठी कोणताही संबंधित फॅक्टरी दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
             else:
-                no_doc_msg = "No relevant documents found in the system. Please seed or upload documents."
+                no_doc_msg = "No relevant factory documents found in the system for this inquiry. Please verify the topic or seed relevant standard operating procedures."
             return {
                 "response": no_doc_msg,
                 "sources": [],
@@ -272,7 +371,7 @@ class LocalRAGEngine:
         
         context_text = "\n\n".join([f"Source ({clean_doc_title(c.document.title, target_lang)}): {c.text}" for c in top_chunks])
         
-        # Attempt Local Ollama LLM execution
+        # 4. Attempt Local Ollama LLM execution with strict factuality prompt
         ollama_response = LocalRAGEngine._call_ollama(user_query, context_text, target_lang, user_role)
         
         if ollama_response:
@@ -291,6 +390,7 @@ class LocalRAGEngine:
     def query_stream(user_query, user_role=Department.QC, target_lang=None):
         """
         Streaming RAG generator yielding Server-Sent Events (SSE) using native pgvector search.
+        Strictly accurate answers + general capabilities streaming.
         """
         import time
         from .models import ChatLog
@@ -341,16 +441,60 @@ class LocalRAGEngine:
             yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': refusal_msg})}\n\n"
             return
 
-        # 2. Native pgvector HNSW candidate retrieval
+        # 2. General / Meta Capability & Purpose Questions Streaming
+        if is_general_or_meta_query(user_query):
+            general_response = get_general_assistant_response(user_query, target_lang=target_lang, user_role=user_role)
+            try:
+                ChatLog.objects.create(
+                    user_role=user_role,
+                    query=user_query,
+                    language=target_lang,
+                    response=general_response,
+                    sources_used=[],
+                    access_blocked=False
+                )
+            except Exception:
+                pass
+
+            meta_data = {"type": "meta", "sources": [], "access_blocked": False, "language": target_lang}
+            yield f"data: {json.dumps(meta_data)}\n\n"
+
+            # Stream sentences and tokens
+            sentence_counter = 0
+            parts = re.split(r'(\n\n|[।\.\?!]\s+)', general_response)
+            buffer = ""
+            for part in parts:
+                buffer += part
+                if '\n' in buffer or any(buffer.strip().endswith(d) for d in ['.', '।', '!', '?']) or len(buffer) > 120:
+                    clean_sent = buffer.strip()
+                    if clean_sent:
+                        yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+                        sentence_counter += 1
+                    for word in re.findall(r'\S+|\s+', buffer):
+                        yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
+                        time.sleep(0.01)
+                    buffer = ""
+
+            if buffer.strip():
+                clean_sent = buffer.strip()
+                yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+                for word in re.findall(r'\S+|\s+', buffer):
+                    yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
+                    time.sleep(0.01)
+
+            yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': general_response})}\n\n"
+            return
+
+        # 3. Native pgvector HNSW candidate retrieval
         top_chunks = LocalRAGEngine.retrieve_top_chunks(user_query, allowed_deps, top_k=3)
 
         if not top_chunks:
             if target_lang == 'hi':
-                no_doc_msg = "सिस्टम में कोई प्रासंगिक दस्तावेज़ नहीं मिला। कृपया व्यवस्थापक से संपर्क करें।"
+                no_doc_msg = "सिस्टम में इस प्रश्न के लिए कोई प्रासंगिक फ़ैक्टरी दस्तावेज़ नहीं मिला। कृपया आवश्यक SOPs अपलोड करें।"
             elif target_lang == 'mr':
-                no_doc_msg = "सिस्टीममध्ये कोणताही संबंधित दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
+                no_doc_msg = "सिस्टीममध्ये या प्रश्नासाठी कोणताही संबंधित फॅक्टरी दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
             else:
-                no_doc_msg = "No relevant documents found in the system. Please seed or upload documents."
+                no_doc_msg = "No relevant factory documents found in the system for this inquiry. Please verify the topic or seed relevant standard operating procedures."
 
             meta_data = {"type": "meta", "sources": [], "access_blocked": False, "language": target_lang}
             yield f"data: {json.dumps(meta_data)}\n\n"
@@ -374,7 +518,7 @@ class LocalRAGEngine:
 
         context_text = "\n\n".join([f"Source ({clean_doc_title(c.document.title, target_lang)}): {c.text}" for c in top_chunks])
 
-        # 3. Stream Ollama tokens or synthesized fallback
+        # 4. Stream Ollama tokens or synthesized fallback
         full_response = ""
         current_sentence = ""
         sentence_counter = 0
@@ -392,11 +536,26 @@ class LocalRAGEngine:
         try:
             url = f"{settings.OLLAMA_BASE_URL}/api/generate"
             if target_lang == 'hi':
-                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, helpful HINDI using the context provided below. User role: {user_role}."
+                system_prompt = (
+                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                    f"User role: {user_role}. "
+                    "CRITICAL: Answer strictly and accurately using ONLY the facts and numbers in the DOCUMENT CONTEXT below. "
+                    "Do not fabricate or guess anything. Answer in clear, professional HINDI."
+                )
             elif target_lang == 'mr':
-                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, helpful MARATHI using the context provided below. User role: {user_role}."
+                system_prompt = (
+                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                    f"User role: {user_role}. "
+                    "CRITICAL: Answer strictly and accurately using ONLY the facts and numbers in the DOCUMENT CONTEXT below. "
+                    "Do not fabricate or guess anything. Answer in clear, professional MARATHI."
+                )
             else:
-                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, direct ENGLISH using the context provided below. User role: {user_role}."
+                system_prompt = (
+                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                    f"User role: {user_role}. "
+                    "CRITICAL: Answer strictly and accurately using ONLY the facts and numbers in the DOCUMENT CONTEXT below. "
+                    "Do not fabricate or guess anything. Answer in clear, structured, professional ENGLISH."
+                )
 
             prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context_text}\n\nUSER QUESTION:\n{user_query}\n\nANSWER:"
 
@@ -405,12 +564,12 @@ class LocalRAGEngine:
                 "prompt": prompt,
                 "stream": True,
                 "options": {
-                    "temperature": 0.3,
+                    "temperature": 0.1,
                     "max_tokens": 1500
                 }
             }
 
-            res = requests.post(url, json=payload, stream=True, timeout=25.0)
+            res = requests.post(url, json=payload, stream=True, timeout=(1.5, 25.0))
             if res.status_code == 200:
                 for line in res.iter_lines():
                     if line:
@@ -480,21 +639,44 @@ class LocalRAGEngine:
 
     @staticmethod
     def _call_ollama(query, context, lang, role):
-        """Call local Ollama server if running."""
+        """Call local Ollama server if running with strict factuality constraints."""
         try:
             url = f"{settings.OLLAMA_BASE_URL}/api/generate"
             if lang == 'hi':
-                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, helpful HINDI using the context provided below. User role: {role}."
+                system_prompt = (
+                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                    f"User role: {role}. "
+                    "CRITICAL INSTRUCTIONS:\n"
+                    "1. Answer strictly and accurately using ONLY the facts and data given in the DOCUMENT CONTEXT below.\n"
+                    "2. Do not invent, assume, or fabricate any numbers, procedures, or safety limits not in the context.\n"
+                    "3. If the context does not contain the answer, state clearly in Hindi that the information is not present in the plant documentation.\n"
+                    "4. Answer in clear, helpful, and natural HINDI."
+                )
             elif lang == 'mr':
-                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, helpful MARATHI using the context provided below. User role: {role}."
+                system_prompt = (
+                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                    f"User role: {role}. "
+                    "CRITICAL INSTRUCTIONS:\n"
+                    "1. Answer strictly and accurately using ONLY the facts and data given in the DOCUMENT CONTEXT below.\n"
+                    "2. Do not invent, assume, or fabricate any numbers, procedures, or safety limits not in the context.\n"
+                    "3. If the context does not contain the answer, state clearly in Marathi that the information is not present in the plant documentation.\n"
+                    "4. Answer in clear, helpful, and natural MARATHI."
+                )
             else:
-                system_prompt = f"You are Tolia AI, an expert Factory Assistant for steel plant workers. Answer in clear, direct ENGLISH using the context provided below. User role: {role}."
+                system_prompt = (
+                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                    f"User role: {role}. "
+                    "CRITICAL INSTRUCTIONS:\n"
+                    "1. Answer strictly and accurately using ONLY the facts and data given in the DOCUMENT CONTEXT below.\n"
+                    "2. Do not invent, assume, or fabricate any numbers, procedures, or safety limits not in the context.\n"
+                    "3. If the context does not contain the answer, state clearly in English that the information is not present in the plant documentation.\n"
+                    "4. Answer in clear, direct, professional ENGLISH with structured points."
+                )
                 
             prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context}\n\nUSER QUESTION:\n{query}\n\nANSWER:"
             
             models_to_try = [
-                getattr(settings, 'OLLAMA_MODEL', 'qwen3.8'),
-                'qwen3.8',
+                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
                 'qwen2.5:7b',
                 'qwen2.5',
                 'llama3'
@@ -510,11 +692,11 @@ class LocalRAGEngine:
                         "prompt": prompt,
                         "stream": False,
                         "options": {
-                            "temperature": 0.2,
+                            "temperature": 0.1,
                             "max_tokens": 500
                         }
                     }
-                    res = requests.post(url, json=payload, timeout=4.0)
+                    res = requests.post(url, json=payload, timeout=(1.5, 4.0))
                     if res.status_code == 200:
                         data = res.json()
                         response_text = data.get("response", "").strip()
@@ -528,13 +710,19 @@ class LocalRAGEngine:
 
     @staticmethod
     def _synthesize_local_response(query, chunks, lang, role):
-        """Generate high-quality structured RAG response based on retrieved factory SOP context."""
+        """Generate high-quality structured RAG response strictly adhering to factory SOP standards."""
         if not chunks:
+            if is_general_or_meta_query(query):
+                return get_general_assistant_response(query, target_lang=lang, user_role=role)
             return "No matching information available."
             
         best_doc = chunks[0].document
         title = clean_doc_title(best_doc.title, lang)
         q_lower = normalize_voice_query(query).lower()
+
+        # General / Meta query
+        if is_general_or_meta_query(query):
+            return get_general_assistant_response(query, target_lang=lang, user_role=role)
 
         # 1. Blast Furnace Emergency & Temperature
         if "blast" in q_lower or "furnace" in q_lower or "ब्लास्ट" in query or "फर्नेस" in query or "shutdown" in q_lower or "emergency" in q_lower:
@@ -645,7 +833,43 @@ class LocalRAGEngine:
                     "   - Mandatory pre-shift breathalyzer and biometric verification."
                 )
 
-        # 4. Sales and Revenue (CEO authorized)
+        # 4. Steel Quality & Hardness Testing
+        if "hardness" in q_lower or "testing" in q_lower or "hrc" in q_lower or "rockwell" in q_lower or "हार्डनेस" in query or "गुणवत्ता" in query:
+            if lang == 'hi':
+                return (
+                    f"**स्टील गुणवत्ता एवं हार्डनेस परीक्षण SOP ({title}):**\n\n"
+                    "1. **रॉकवेल हार्डनेस (Rockwell Hardness C - HRC):**\n"
+                    "   - हाई कार्बन स्टील ग्राइंडिंग बॉल्स की सतह पर हार्डनेस **58 से 65 HRC** के बीच होनी चाहिए।\n"
+                    "   - वॉल्यूमेट्रिक केंद्र (Core) पर न्यूनतम **55 HRC** अनिवार्य है।\n"
+                    "   - परीक्षण मानक: **ASTM E18** डायमंड इंडेंटर (150 kgf लोड)।\n\n"
+                    "2. **माइक्रोस्ट्रक्चर एवं सतह अखंडता:**\n"
+                    "   - मार्टेंसिटिक ग्रेन संरचना (5% से कम रिटेंड ऑस्टेनाइट)।\n"
+                    "   - सतह पर 0.2 मिमी से अधिक गहरा कोई क्रैक नहीं होना चाहिए।"
+                )
+            elif lang == 'mr':
+                return (
+                    f"**स्टील गुणवत्ता आणि हार्डनेस चाचणी SOP ({title}):**\n\n"
+                    "1. **रॉकवेल हार्डनेस (HRC):**\n"
+                    "   - हाय कार्बन स्टील बॉल्सच्या पृष्ठभागावर **58 ते 65 HRC** असणे आवश्यक आहे.\n"
+                    "   - केंद्रात किमान **55 HRC**.\n"
+                    "   - चाचणी मानक: **ASTM E18** डायमंड इंडेंटर (150 kgf लोड).\n\n"
+                    "2. **मायक्रोस्ट्रक्चर आणि पृष्ठभाग:**\n"
+                    "   - मार्टेन्सिटिक रचना (5% पेक्षा कमी रिटेन्ड ऑस्टेनाईट).\n"
+                    "   - 0.2 मिमी पेक्षा जास्त क्रॅक चालणार नाही."
+                )
+            else:
+                return (
+                    f"**Steel Quality & Hardness Testing SOP ({title}):**\n\n"
+                    "1. **Hardness Testing Requirements (HRC):**\n"
+                    "   - High Carbon Steel Grinding Balls: Rockwell Hardness C must be between **58 and 65 HRC** across the surface.\n"
+                    "   - Core / Center hardness: Minimum **55 HRC**.\n"
+                    "   - Testing Standard: **ASTM E18** standard using diamond spheroconical indenter with 150 kgf load.\n\n"
+                    "2. **Microstructure & Surface Integrity:**\n"
+                    "   - Martensitic grain structure with less than 5% retained austenite.\n"
+                    "   - Surface defect limits: No cracks deeper than 0.2 mm allowed."
+                )
+
+        # 5. Sales and Revenue (CEO authorized)
         if "sales" in q_lower or "revenue" in q_lower or "target" in q_lower or "pricing" in q_lower or "बिक्री" in query:
             if lang == 'hi':
                 return (
