@@ -366,6 +366,11 @@ export default function ChatWindow({ activeRole, lang }) {
       return;
     }
 
+    // Ensure zero overlap with any lingering speech synthesis
+    if ('speechSynthesis' in window) {
+      try { window.speechSynthesis.cancel(); } catch (e) {}
+    }
+
     isPlayingQueueRef.current = true;
     const nextItem = audioQueueRef.current.shift();
     if (!nextItem || !nextItem.audio) return;
@@ -389,41 +394,16 @@ export default function ChatWindow({ activeRole, lang }) {
       playNextInQueue(targetIdx);
     };
 
-    audio.onerror = () => {
-      console.warn("HTML5 audio playback error, attempting native speech synthesis fallback");
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(nextItem.text);
-        utterance.lang = getLangCode(lang);
-        utterance.onstart = () => {
-          setActiveAudioEngine('webspeech');
-          setSpeakingIndex(targetIdx);
-          setIsVoicePaused(false);
-        };
-        utterance.onend = () => playNextInQueue(targetIdx);
-        utterance.onerror = () => playNextInQueue(targetIdx);
-        window.speechSynthesis.speak(utterance);
-      } else {
-        playNextInQueue(targetIdx);
-      }
+    audio.onerror = (e) => {
+      console.warn("HTML5 audio playback error on chunk:", e);
+      playNextInQueue(targetIdx);
     };
 
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
-        console.warn("Autoplay blocked by browser policy, switching to Web Speech:", err);
-        if ('speechSynthesis' in window) {
-          const utterance = new SpeechSynthesisUtterance(nextItem.text);
-          utterance.lang = getLangCode(lang);
-          utterance.onstart = () => {
-            setActiveAudioEngine('webspeech');
-            setSpeakingIndex(targetIdx);
-            setIsVoicePaused(false);
-          };
-          utterance.onend = () => playNextInQueue(targetIdx);
-          utterance.onerror = () => playNextInQueue(targetIdx);
-          window.speechSynthesis.speak(utterance);
-        } else {
-          playNextInQueue(targetIdx);
+        if (err.name !== 'AbortError') {
+          console.warn("Audio play notice:", err);
         }
       });
     }
@@ -510,7 +490,7 @@ export default function ChatWindow({ activeRole, lang }) {
 
     const targetIdx = index !== undefined && index !== null && index >= 0 ? index : getLatestBotMessageIndex();
 
-    // 1. Try High-Speed Backend Voice (/api/voice/synthesize/)
+    // High-Speed Backend Voice (/api/voice/synthesize/)
     const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(lang)}`;
     const audio = new Audio(audioUrl);
     currentAudioRef.current = audio;
@@ -526,57 +506,17 @@ export default function ChatWindow({ activeRole, lang }) {
     };
 
     audio.onerror = () => {
-      console.warn("Backend audio error, falling back to Web Speech Synthesis");
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.lang = getLangCode(lang);
-
-        utterance.onstart = () => {
-          setActiveAudioEngine('webspeech');
-          setSpeakingIndex(targetIdx);
-          setIsVoicePaused(false);
-        };
-
-        utterance.onend = () => {
-          stopVoice();
-        };
-
-        utterance.onerror = () => {
-          stopVoice();
-        };
-
-        currentUtteranceRef.current = utterance;
-        window.speechSynthesis.speak(utterance);
-      }
+      console.warn("Backend audio error");
+      stopVoice();
     };
 
     const playPromise = audio.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
-        console.warn("Autoplay rejected by browser, switching to Web Speech:", err);
-        if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(cleanText);
-          utterance.lang = getLangCode(lang);
-
-          utterance.onstart = () => {
-            setActiveAudioEngine('webspeech');
-            setSpeakingIndex(targetIdx);
-            setIsVoicePaused(false);
-          };
-
-          utterance.onend = () => {
-            stopVoice();
-          };
-
-          utterance.onerror = () => {
-            stopVoice();
-          };
-
-          currentUtteranceRef.current = utterance;
-          window.speechSynthesis.speak(utterance);
+        if (err.name !== 'AbortError') {
+          console.warn("Audio play rejected:", err);
         }
+        stopVoice();
       });
     }
   };
