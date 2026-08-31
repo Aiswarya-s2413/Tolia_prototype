@@ -149,6 +149,7 @@ export default function ChatWindow({ activeRole, lang }) {
   const abortControllerRef = useRef(null);
   const audioQueueRef = useRef([]);
   const isPlayingQueueRef = useRef(false);
+  const hasQueuedAudioRef = useRef(false);
 
   // Speech Recognition (STT) setup with ChatGPT-style Auto-Silence & Interim Streaming
   useEffect(() => {
@@ -593,6 +594,7 @@ export default function ChatWindow({ activeRole, lang }) {
 
     // Zero-Latency Barge-In: immediately cut off any playing speech
     stopVoice();
+    hasQueuedAudioRef.current = false;
 
     const botMsgId = 'bot_' + Date.now() + '_' + Math.floor(Math.random() * 10000);
     const userMsg = {
@@ -671,6 +673,7 @@ export default function ChatWindow({ activeRole, lang }) {
                 } : m));
               } else if (data.type === 'sentence') {
                 if (autoSpeak && data.text) {
+                  hasQueuedAudioRef.current = true;
                   const currentIdx = getLatestBotMessageIndex();
                   queueSentenceForTTS(data.text, currentIdx >= 0 ? currentIdx : 1);
                 }
@@ -679,14 +682,10 @@ export default function ChatWindow({ activeRole, lang }) {
                   ...m,
                   isStreaming: false
                 } : m));
-                // Safety: if sentence audio did not start, trigger playback
-                if (autoSpeak && !isPlayingQueueRef.current && accumulatedText) {
+                // Fallback ONLY if no sentence audio was queued at all during streaming
+                if (autoSpeak && !hasQueuedAudioRef.current && accumulatedText) {
                   const currentIdx = getLatestBotMessageIndex();
-                  setTimeout(() => {
-                    if (!isPlayingQueueRef.current && speakingIndex === null) {
-                      speakText(accumulatedText, currentIdx >= 0 ? currentIdx : 1);
-                    }
-                  }, 200);
+                  speakText(accumulatedText, currentIdx >= 0 ? currentIdx : 1);
                 }
               }
             } catch (err) {
