@@ -263,6 +263,7 @@ export default function ChatWindow({ activeRole, lang }) {
 
   // Fluid Voice Toggle & Barge-In (Tap to Speak / Tap to Interrupt)
   const toggleListening = () => {
+    unlockAudioContext();
     // 1. If bot is speaking, tap instantly interrupts AI and starts listening
     const isBotSpeaking = isPlayingQueueRef.current || (currentAudioRef.current && !currentAudioRef.current.paused) || (window.speechSynthesis && window.speechSynthesis.speaking) || speakingIndex !== null;
     if (isBotSpeaking) {
@@ -310,6 +311,28 @@ export default function ChatWindow({ activeRole, lang }) {
     }
   }, []);
 
+  // Pre-unlock audio permission on user interaction for smooth mobile & desktop playback
+  const unlockAudioContext = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) {
+        if (!window._sharedAudioCtx) {
+          window._sharedAudioCtx = new AudioCtx();
+        }
+        if (window._sharedAudioCtx.state === 'suspended') {
+          window._sharedAudioCtx.resume();
+        }
+      }
+      if (!window._audioUnlocked) {
+        const dummyAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
+        dummyAudio.play().then(() => {
+          dummyAudio.pause();
+          window._audioUnlocked = true;
+        }).catch(() => {});
+      }
+    } catch (e) {}
+  };
+
   // Stop all active voice audio and cancel streaming (Zero-Latency Barge-In)
   const stopVoice = () => {
     // 1. Send instant cancel frame over WebSocket to halt backend RAG/LLM immediately
@@ -325,25 +348,35 @@ export default function ChatWindow({ activeRole, lang }) {
       abortControllerRef.current = null;
     }
 
-    // 2. Clear sentence audio queue
-    audioQueueRef.current.forEach((item) => {
-      if (item.audio) {
-        try { item.audio.pause(); item.audio.src = ''; } catch (e) {}
-      }
-    });
-    audioQueueRef.current = [];
-    isPlayingQueueRef.current = false;
-
-    // 3. Stop active HTML5 audio
+    // 3. Stop and clear active HTML5 audio
     if (currentAudioRef.current) {
       try {
         currentAudioRef.current.pause();
+        currentAudioRef.current.onended = null;
+        currentAudioRef.current.onerror = null;
+        currentAudioRef.current.onplay = null;
         currentAudioRef.current.src = '';
       } catch (e) {}
       currentAudioRef.current = null;
     }
 
-    // 4. Cancel Web Speech
+    // 4. Clear sentence audio queue
+    audioQueueRef.current.forEach((item) => {
+      if (item.audio) {
+        try {
+          item.audio.pause();
+          item.audio.onended = null;
+          item.audio.onerror = null;
+          item.audio.onplay = null;
+          item.audio.src = '';
+        } catch (e) {}
+      }
+    });
+    audioQueueRef.current = [];
+    isPlayingQueueRef.current = false;
+    hasQueuedAudioRef.current = false;
+
+    // 5. Cancel Web Speech
     if ('speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
@@ -373,7 +406,10 @@ export default function ChatWindow({ activeRole, lang }) {
 
     isPlayingQueueRef.current = true;
     const nextItem = audioQueueRef.current.shift();
-    if (!nextItem || !nextItem.audio) return;
+    if (!nextItem || !nextItem.audio) {
+      playNextInQueue(targetIdx);
+      return;
+    }
 
     const audio = nextItem.audio;
     currentAudioRef.current = audio;
@@ -403,7 +439,8 @@ export default function ChatWindow({ activeRole, lang }) {
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
         if (err.name !== 'AbortError') {
-          console.warn("Audio play notice:", err);
+          console.warn("Audio play rejected, recovering queue:", err);
+          playNextInQueue(targetIdx);
         }
       });
     }
@@ -533,6 +570,7 @@ export default function ChatWindow({ activeRole, lang }) {
     if (!query || isLoading) return;
 
     // Zero-Latency Barge-In: immediately cut off any playing speech
+    unlockAudioContext();
     stopVoice();
     hasQueuedAudioRef.current = false;
 
