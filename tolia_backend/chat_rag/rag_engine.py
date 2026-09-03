@@ -245,8 +245,6 @@ def get_general_assistant_response(query_text, target_lang='en', user_role=Depar
             "  2. Explain machinery maintenance, hydraulic limits, and PPE safety rules.\n"
             "  3. Answer queries by voice in English, Hindi (हिंदी), and Marathi (मराठी)."
         )
-            "• **Multilingual Voice & Chat:** Real-time, zero-latency speech-to-text and voice streaming in English, Hindi (हिंदी), and Marathi (मराठी)."
-        )
 
 def get_allowed_departments_for_role(user_role):
     """Return list of required_department tags a user role is permitted to see."""
@@ -726,8 +724,6 @@ class LocalRAGEngine:
             return get_general_assistant_response(query, target_lang=lang, user_role=role)
 
         # 1. Blast Furnace Emergency & Temperature
-        if "blast" in q_lower or "furnace" in q_lower or "ब्लास्ट" in query or "फर्नेस" in query or "shutdown" in q_lower or "emergency" in q_lower:
-        # 1. Blast Furnace Emergency & Temperature
         if "blast" in q_lower or "furnace" in q_lower or "emergency" in q_lower or "shutdown" in q_lower or "ब्लास्ट" in query or "तापमान" in query:
             if lang == 'hi':
                 return (
@@ -833,17 +829,6 @@ class LocalRAGEngine:
                     "2. Core (center) hardness must be at least **55 HRC**.\n"
                     "3. Testing Standard: **ASTM E18** Rockwell Hardness scale.\n"
                     "4. Surface defects: No cracks deeper than 0.2 mm allowed."
-                )
-            else:
-                return (
-                    f"**Steel Quality & Hardness Testing SOP ({title}):**\n\n"
-                    "1. **Hardness Testing Requirements (HRC):**\n"
-                    "   - High Carbon Steel Grinding Balls: Rockwell Hardness C must be between **58 and 65 HRC** across the surface.\n"
-                    "   - Core / Center hardness: Minimum **55 HRC**.\n"
-                    "   - Testing Standard: **ASTM E18** standard using diamond spheroconical indenter with 150 kgf load.\n\n"
-                    "2. **Microstructure & Surface Integrity:**\n"
-                    "   - Martensitic grain structure with less than 5% retained austenite.\n"
-                    "   - Surface defect limits: No cracks deeper than 0.2 mm allowed."
                 )
 
         # 5. Sales and Revenue (CEO authorized)
