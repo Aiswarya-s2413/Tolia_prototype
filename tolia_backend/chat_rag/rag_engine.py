@@ -23,6 +23,31 @@ def is_ollama_alive(url, timeout=0.015):
     except Exception:
         return False
 
+def _get_active_ollama_model():
+    """Discover the best active model in Ollama (e.g., qwen2.5:1.5b, qwen2.5:0.5b, qwen2.5:7b, qwen3.8)."""
+    try:
+        res = requests.get(f"{settings.OLLAMA_BASE_URL}/api/tags", timeout=0.2)
+        if res.status_code == 200:
+            available = [m.get("name", "") for m in res.json().get("models", [])]
+            preferred_order = [
+                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:1.5b'),
+                'qwen2.5:1.5b',
+                'qwen2.5:0.5b',
+                'qwen2.5:7b',
+                'qwen2.5',
+                'qwen3.8',
+                'llama3'
+            ]
+            for pref in preferred_order:
+                for avail in available:
+                    if avail == pref or avail.startswith(pref):
+                        return avail
+            if available:
+                return available[0]
+    except Exception:
+        pass
+    return getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:1.5b')
+
 def detect_language(text):
     """
     Dynamically detect language (English 'en', Hindi 'hi', or Marathi 'mr') from user query or speech transcript.
@@ -559,38 +584,41 @@ class LocalRAGEngine:
         url = f"{settings.OLLAMA_BASE_URL}/api/generate"
         if is_ollama_alive(settings.OLLAMA_BASE_URL):
             try:
+                active_model = _get_active_ollama_model()
                 if target_lang == 'hi':
                     system_prompt = (
-                        f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
-                        "Answer directly, accurately, and concisely using the facts below. Do not guess. Answer in clear HINDI."
+                        f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                        f"User role: {user_role}. "
+                        "CRITICAL: Answer strictly and concisely using the provided context facts. Do not invent numbers. Answer in clear HINDI."
                     )
                 elif target_lang == 'mr':
                     system_prompt = (
-                        f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
-                        "Answer directly, accurately, and concisely using the facts below. Do not guess. Answer in clear MARATHI."
+                        f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                        f"User role: {user_role}. "
+                        "CRITICAL: Answer strictly and concisely using the provided context facts. Do not invent numbers. Answer in clear MARATHI."
                     )
                 else:
                     system_prompt = (
-                        f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
-                        "Answer directly, accurately, and concisely in 2-3 structured bullet points using the facts below. Answer in clear ENGLISH."
+                        f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
+                        f"User role: {user_role}. "
+                        "CRITICAL: Answer directly, accurately, and concisely in 2-3 structured points using the provided context facts. Answer in clear ENGLISH."
                     )
 
-                # Compact context to keep prompt evaluation sub-second
-                compact_context = "\n".join([f"- {c.document.title}: {c.text[:300]}" for c in top_chunks])
-                prompt = f"{system_prompt}\n\nCONTEXT:\n{compact_context}\n\nQUESTION: {user_query}\n\nANSWER:"
+                compact_context = "\n".join([f"- {c.document.title}: {c.text}" for c in top_chunks[:3]])
+                prompt = f"{system_prompt}\n\nFACTORY SOP CONTEXT:\n{compact_context}\n\nUSER QUESTION:\n{user_query}\n\nACCURATE ANSWER:"
 
                 payload = {
-                    "model": getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
+                    "model": active_model,
                     "prompt": prompt,
                     "stream": True,
                     "options": {
                         "temperature": 0.1,
-                        "num_ctx": 1024,
-                        "num_predict": 200
+                        "num_ctx": 2048,
+                        "num_predict": 300
                     }
                 }
 
-                res = requests.post(url, json=payload, stream=True, timeout=(1.0, 20.0))
+                res = requests.post(url, json=payload, stream=True, timeout=(1.0, 30.0))
                 if res.status_code == 200:
                     for line in res.iter_lines():
                         if line:
