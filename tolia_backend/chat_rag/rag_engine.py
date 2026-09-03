@@ -1,10 +1,27 @@
 import re
+import socket
 import requests
 import json
 import math
+import time
+from urllib.parse import urlparse
 from collections import Counter
 from django.conf import settings
 from .models import Document, DocumentChunk, Department, DocumentCategory
+
+def is_ollama_alive(url, timeout=0.015):
+    """Fast non-blocking check to verify if Ollama daemon is active in < 15ms without hanging on timeout."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or '127.0.0.1'
+        port = parsed.port or 11434
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
 
 def detect_language(text):
     """
@@ -539,63 +556,64 @@ class LocalRAGEngine:
             return any(stripped.endswith(d) for d in sentence_delimiters) or len(stripped) > 100
 
         ollama_streamed = False
-        try:
-            url = f"{settings.OLLAMA_BASE_URL}/api/generate"
-            if target_lang == 'hi':
-                system_prompt = (
-                    f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
-                    "Answer directly, accurately, and concisely using the facts below. Do not guess. Answer in clear HINDI."
-                )
-            elif target_lang == 'mr':
-                system_prompt = (
-                    f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
-                    "Answer directly, accurately, and concisely using the facts below. Do not guess. Answer in clear MARATHI."
-                )
-            else:
-                system_prompt = (
-                    f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
-                    "Answer directly, accurately, and concisely in 2-3 structured bullet points using the facts below. Answer in clear ENGLISH."
-                )
+        url = f"{settings.OLLAMA_BASE_URL}/api/generate"
+        if is_ollama_alive(settings.OLLAMA_BASE_URL):
+            try:
+                if target_lang == 'hi':
+                    system_prompt = (
+                        f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
+                        "Answer directly, accurately, and concisely using the facts below. Do not guess. Answer in clear HINDI."
+                    )
+                elif target_lang == 'mr':
+                    system_prompt = (
+                        f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
+                        "Answer directly, accurately, and concisely using the facts below. Do not guess. Answer in clear MARATHI."
+                    )
+                else:
+                    system_prompt = (
+                        f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
+                        "Answer directly, accurately, and concisely in 2-3 structured bullet points using the facts below. Answer in clear ENGLISH."
+                    )
 
-            # Compact context to keep prompt evaluation sub-second
-            compact_context = "\n".join([f"- {c.document.title}: {c.text[:300]}" for c in top_chunks])
-            prompt = f"{system_prompt}\n\nCONTEXT:\n{compact_context}\n\nQUESTION: {user_query}\n\nANSWER:"
+                # Compact context to keep prompt evaluation sub-second
+                compact_context = "\n".join([f"- {c.document.title}: {c.text[:300]}" for c in top_chunks])
+                prompt = f"{system_prompt}\n\nCONTEXT:\n{compact_context}\n\nQUESTION: {user_query}\n\nANSWER:"
 
-            payload = {
-                "model": getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
-                "prompt": prompt,
-                "stream": True,
-                "options": {
-                    "temperature": 0.1,
-                    "num_ctx": 1024,
-                    "num_predict": 200
+                payload = {
+                    "model": getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
+                    "prompt": prompt,
+                    "stream": True,
+                    "options": {
+                        "temperature": 0.1,
+                        "num_ctx": 1024,
+                        "num_predict": 200
+                    }
                 }
-            }
 
-            res = requests.post(url, json=payload, stream=True, timeout=(2.0, 30.0))
-            if res.status_code == 200:
-                for line in res.iter_lines():
-                    if line:
-                        chunk_json = json.loads(line.decode('utf-8'))
-                        token = chunk_json.get("response", "")
-                        if token:
-                            ollama_streamed = True
-                            full_response += token
-                            current_sentence += token
-                            yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+                res = requests.post(url, json=payload, stream=True, timeout=(1.0, 20.0))
+                if res.status_code == 200:
+                    for line in res.iter_lines():
+                        if line:
+                            chunk_json = json.loads(line.decode('utf-8'))
+                            token = chunk_json.get("response", "")
+                            if token:
+                                ollama_streamed = True
+                                full_response += token
+                                current_sentence += token
+                                yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
 
-                            if is_sentence_end(current_sentence):
-                                clean_sent = current_sentence.strip()
-                                if clean_sent:
-                                    yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
-                                    sentence_counter += 1
-                                    current_sentence = ""
-                        if chunk_json.get("done", False):
-                            break
-        except Exception:
-            pass
+                                if is_sentence_end(current_sentence):
+                                    clean_sent = current_sentence.strip()
+                                    if clean_sent:
+                                        yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+                                        sentence_counter += 1
+                                        current_sentence = ""
+                            if chunk_json.get("done", False):
+                                break
+            except Exception:
+                pass
 
-        # Fallback if Ollama was not active or produced no tokens
+        # Instantaneous local plant synthesis if Ollama is not active or produced no tokens
         if not ollama_streamed or not full_response.strip():
             fallback_text = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
             full_response = fallback_text
@@ -612,7 +630,7 @@ class LocalRAGEngine:
                         sentence_counter += 1
                     for word in re.findall(r'\S+|\s+', buffer):
                         yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                        time.sleep(0.015)
+                        time.sleep(0.002)
                     buffer = ""
 
             if buffer.strip():
@@ -620,7 +638,7 @@ class LocalRAGEngine:
                 yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
                 for word in re.findall(r'\S+|\s+', buffer):
                     yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                    time.sleep(0.015)
+                    time.sleep(0.002)
         else:
             if current_sentence.strip():
                 yield f"data: {json.dumps({'type': 'sentence', 'text': current_sentence.strip(), 'sentence_index': sentence_counter})}\n\n"
@@ -643,6 +661,8 @@ class LocalRAGEngine:
     @staticmethod
     def _call_ollama(query, context, lang, role):
         """Call local Ollama server if running with strict factuality constraints."""
+        if not is_ollama_alive(settings.OLLAMA_BASE_URL):
+            return None
         try:
             url = f"{settings.OLLAMA_BASE_URL}/api/generate"
             if lang == 'hi':
