@@ -314,7 +314,10 @@ export default function ChatWindow({ activeRole }) {
     } catch (err) {
       console.error('Microphone start error:', err);
       setIsListening(false);
-      setLiveTranscript('Microphone access blocked. Click the Tune/Lock icon in address bar to Allow Mic.');
+      const errMsg = err?.name === 'NotAllowedError' 
+        ? 'Microphone permission was denied. Click the Tune/Lock icon next to URL -> Allow Microphone -> Reload.' 
+        : `Microphone issue (${err?.name || 'Error'}): ${err?.message || 'Unable to access audio device'}`;
+      setLiveTranscript(errMsg);
     }
   };
 
