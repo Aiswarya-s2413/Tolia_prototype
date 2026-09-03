@@ -606,7 +606,7 @@ class LocalRAGEngine:
                     }
                 }
 
-                res = requests.post(url, json=payload, stream=True, timeout=(1.0, 30.0))
+                res = requests.post(url, json=payload, stream=True, timeout=(5.0, 45.0))
                 if res.status_code == 200:
                     for line in res.iter_lines():
                         if line:
