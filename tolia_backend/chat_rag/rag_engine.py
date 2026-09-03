@@ -24,15 +24,15 @@ def is_ollama_alive(url, timeout=0.015):
         return False
 
 def _get_active_ollama_model():
-    """Discover the best active model in Ollama (e.g., qwen2.5:1.5b, qwen2.5:0.5b, qwen2.5:7b, qwen3.8)."""
+    """Discover the best active model in Ollama (e.g., qwen2.5:0.5b for fast 1-vCPU CPU, qwen2.5:1.5b, qwen2.5:7b)."""
     try:
         res = requests.get(f"{settings.OLLAMA_BASE_URL}/api/tags", timeout=0.2)
         if res.status_code == 200:
             available = [m.get("name", "") for m in res.json().get("models", [])]
             preferred_order = [
-                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:1.5b'),
-                'qwen2.5:1.5b',
+                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:0.5b'),
                 'qwen2.5:0.5b',
+                'qwen2.5:1.5b',
                 'qwen2.5:7b',
                 'qwen2.5',
                 'qwen3.8',
@@ -46,7 +46,7 @@ def _get_active_ollama_model():
                 return available[0]
     except Exception:
         pass
-    return getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:1.5b')
+    return getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:0.5b')
 
 def detect_language(text):
     """

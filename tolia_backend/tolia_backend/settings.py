@@ -106,7 +106,7 @@ REST_FRAMEWORK = {
 
 # Local LLM settings
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5:1.5b')
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen2.5:0.5b')
 
 # VEXYL-STT Speech-to-Text Server settings (AI4Bharat Indic-Conformer 600M)
 VEXYL_STT_URL = os.getenv('VEXYL_STT_URL', 'http://localhost:8001')
