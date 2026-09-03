@@ -220,20 +220,31 @@ def is_general_or_meta_query(query_text):
     return False
 
 def get_general_assistant_response(query_text, target_lang='en', user_role=Department.QC):
-    """Generate strictly accurate, precise explanation of Tolia AI purpose and capabilities without emojis."""
+    """Generate strictly accurate, precise explanation of Tolia AI purpose and capabilities in simple words."""
     if target_lang == 'hi':
         return (
-            "**मैं Tolia AI (टोलिया एआई) हूँ** — स्टील प्लांट एवं औद्योगिक कारखानों के लिए एक विशेष वॉयस-सक्षम AI सहायक।\n\n"
-            "• **बहुभाषी वॉयस एवं चैट:** हिंदी, मराठी और अंग्रेजी में रीयल-टाइम शून्य-विलंबता वॉइस एवं चैट सहायता प्रदान करना।"
+            "**मैं Tolia AI हूँ** — स्टील प्लांट संचालन के लिए आपका वॉयस असिस्टेंट।\n\n"
+            "• **मैं आपकी क्या मदद कर सकता हूँ:**\n"
+            "  1. ब्लास्ट फर्नेस और रोलिंग मिल के आपातकालीन नियम एवं SOP बताना।\n"
+            "  2. मशीन रखरखाव, हाइड्रोलिक प्रेशर, और सुरक्षा गाइडलाइन्स समझाना।\n"
+            "  3. हिंदी, मराठी और अंग्रेजी में बोलकर तुरंत जवाब देना।"
         )
     elif target_lang == 'mr':
         return (
-            "**मी Tolia AI (टोलिया एआय) आहे** — स्टील प्लांट आणि कारखान्यांसाठी एक प्रगत व्हॉइस-सक्षम AI सहाय्यक.\n\n"
-            "• **बहुभाषिक व्हॉइस व चॅट:** मराठी, हिंदी आणि इंग्रजीमध्ये रिअल-टाइम व्हॉइस व टेक्स्ट सपोर्ट देणे."
+            "**मी Tolia AI आहे** — स्टील कारखान्यासाठी तुमचा व्हॉइस असिस्टंट.\n\n"
+            "• **मी कशी मदत करू शकतो:**\n"
+            "  १. ब्लास्ट फर्नेस व रोलिंग मिलचे आपत्कालीन नियम आणि SOP सांगणे.\n"
+            "  २. मशिन मेंटेनन्स, हायड्रोलिक प्रेशर आणि सुरक्षेची माहिती देणे.\n"
+            "  ३. मराठी, हिंदी आणि इंग्रजीमध्ये बोलून तत्काळ उत्तर देणे."
         )
     else:
         return (
-            "**I am Tolia AI** — a voice-enabled industrial Factory Assistant for steel plant operations.\n\n"
+            "**I am Tolia AI** — your voice assistant for steel plant operations.\n\n"
+            "• **How I can help you:**\n"
+            "  1. Provide instant SOPs and emergency shutdown steps (Blast Furnace, Rolling Mill).\n"
+            "  2. Explain machinery maintenance, hydraulic limits, and PPE safety rules.\n"
+            "  3. Answer queries by voice in English, Hindi (हिंदी), and Marathi (मराठी)."
+        )
             "• **Multilingual Voice & Chat:** Real-time, zero-latency speech-to-text and voice streaming in English, Hindi (हिंदी), and Marathi (मराठी)."
         )
 
@@ -716,136 +727,112 @@ class LocalRAGEngine:
 
         # 1. Blast Furnace Emergency & Temperature
         if "blast" in q_lower or "furnace" in q_lower or "ब्लास्ट" in query or "फर्नेस" in query or "shutdown" in q_lower or "emergency" in q_lower:
+        # 1. Blast Furnace Emergency & Temperature
+        if "blast" in q_lower or "furnace" in q_lower or "emergency" in q_lower or "shutdown" in q_lower or "ब्लास्ट" in query or "तापमान" in query:
             if lang == 'hi':
                 return (
-                    f"**ब्लास्ट फर्नेस आपातकालीन सुरक्षा SOP ({title}):**\n\n"
-                    "1. **आपातकालीन बंद प्रक्रिया (Emergency Shutdown):**\n"
-                    "   - यदि गैस का दबाव 2.5 bar से अधिक हो जाए, तो तुरंत **मुख्य नियंत्रण वाल्व (Valve B-4)** बंद करें।\n"
-                    "   - कंट्रोल कंसोल #1 पर लगा **लाल आपातकालीन बटन (Red Button)** दबाएं।\n"
-                    "   - स्नॉर्ट वाल्व स्वचालित रूप से खुल जाएगा। गैस बैकड्राफ्ट रोकने के लिए **नाइट्रोजन पर्ज** शुरू करें।\n"
-                    "   - 3 छोटे सायरन बजाएं और सभी कर्मचारियों को तुरंत **असेंबली पॉइंट 2** पर ले जाएं।\n\n"
-                    "2. **सुरक्षा तापमान:**\n"
-                    "   - फर्नेस का तापमान 1450°C से 1550°C के बीच होता है।\n"
-                    "   - एल्युमिनाइज्ड हीट-रेसिस्टेंट सूट, गोल्ड-कोटेड फेस शील्ड और थर्मल दस्ताने पहनना अनिवार्य है।"
+                    "**ब्लास्ट फर्नेस आपातकालीन नियम:**\n\n"
+                    "1. यदि गैस दबाव 2.5 bar से अधिक हो, तो तुरंत **मुख्य वाल्व (Valve B-4)** बंद करें।\n"
+                    "2. कंट्रोल कंसोल पर लगा **लाल आपातकालीन बटन** दबाएं।\n"
+                    "3. गैस बैकड्राफ्ट रोकने के लिए **नाइट्रोजन पर्ज** शुरू करें।\n"
+                    "4. 3 सायरन बजाएं और सभी को **असेंबली पॉइंट 2** पर ले जाएं।\n"
+                    "5. फर्नेस तापमान **1450°C से 1550°C** रहता है। हीट-सूट पहनना अनिवार्य है।"
                 )
             elif lang == 'mr':
                 return (
-                    f"**ब्लास्ट फर्नेस आपत्कालीन सुरक्षा SOP ({title}):**\n\n"
-                    "1. **आपत्कालीन बंद प्रक्रिया (Emergency Shutdown):**\n"
-                    "   - गॅसचा दाब २.५ bar पेक्षा जास्त झाल्यास, मुख्य नियंत्रण **व्हॉल्व्ह (Valve B-4)** तत्काळ बंद करा.\n"
-                    "   - कंट्रोल कन्सोल #१ वरील **लाल आपत्कालीन बटण** दाबा.\n"
-                    "   - स्नॉर्ट व्हॉल्व्ह आपोआप उघडेल. गॅस बॅकड्राफ्ट रोखण्यासाठी **नायट्रोजन पर्ज** सुरू करा.\n"
-                    "   - ३ लहान सायरन वाजवा आणि सर्व कर्मचार्‍यांना **असेंब्ली पॉइंट २** वर सुरक्षित पोहोचवा.\n\n"
-                    "2. **सुरक्षा तापमान:**\n"
-                    "   - फर्नेसचे तापमान १४५०°C ते १५५०°C दरम्यान असते. उष्णतारोधक सूट व थर्मल हातमोजे अनिवार्य आहेत."
+                    "**ब्लास्ट फर्नेस आपत्कालीन नियम:**\n\n"
+                    "१. गॅस दाब २.५ bar पेक्षा जास्त झाल्यास, **मुख्य व्हॉल्व्ह (Valve B-4)** तत्काळ बंद करा.\n"
+                    "२. कंट्रोल कन्सोलवरील **लाल आपत्कालीन बटण** दाबा.\n"
+                    "३. गॅस बॅकड्राफ्ट रोखण्यासाठी **नायट्रोजन पर्ज** सुरू करा.\n"
+                    "४. सायरन वाजवून सर्वांना **असेंब्ली पॉइंट २** वर हलवा.\n"
+                    "५. फर्नेसचे तापमान **१४५०°C ते १५५०°C** असते. सुरक्षा सूट घालणे बंधनकारक आहे."
                 )
             else:
                 return (
-                    f"**Blast Furnace Emergency Shutdown Protocol ({title}):**\n\n"
-                    "1. **Emergency Shutdown Steps (Critical):**\n"
-                    "   - **Step 1:** If gas pressure exceeds 2.5 bar or a temperature anomaly occurs, immediately close **Main Blast Control Valve (Valve B-4)**.\n"
-                    "   - **Step 2:** Press the **Red Emergency Stop Button** on Control Console #1 or Tuyere Exit #3.\n"
-                    "   - **Step 3:** The Snort valve opens automatically to vent blast air to atmosphere.\n"
-                    "   - **Step 4:** Initiate Nitrogen purge into the furnace top to prevent explosive gas backdraft.\n"
-                    "   - **Step 5:** Sound the Plant Siren (3 short blasts) and immediately evacuate all staff to **Assembly Point 2**.\n\n"
-                    "2. **Operating Safety:**\n"
-                    "   - Hearth operating temperature is **1450°C – 1550°C**.\n"
-                    "   - Mandatory PPE: Aluminized heat-resistant suit, gold-coated face shield, and thermal gloves."
+                    "**Blast Furnace Emergency Shutdown Steps:**\n\n"
+                    "1. If gas pressure exceeds 2.5 bar, immediately close **Main Control Valve (Valve B-4)**.\n"
+                    "2. Press the **Red Emergency Stop Button** on Control Console 1.\n"
+                    "3. The Snort valve opens automatically and Nitrogen purge starts to prevent gas backdraft.\n"
+                    "4. Sound 3 siren blasts and evacuate all staff to **Assembly Point 2**.\n"
+                    "5. Operating temperature is **1450°C to 1550°C**. Mandatory heat suit and face shield."
                 )
 
         # 2. Rolling Mill Maintenance & Pressure
-        if "rolling" in q_lower or "gearbox" in q_lower or "hydraulic" in q_lower or "रोलिंग" in query:
+        if "rolling" in q_lower or "gearbox" in q_lower or "hydraulic" in q_lower or "रोलिंग" in query or "vibration" in q_lower:
             if lang == 'hi':
                 return (
-                    f"**रोलिंग मिल रखरखाव SOP ({title}):**\n\n"
-                    "1. **गियरबॉक्स तेल चेकलिस्ट:**\n"
-                    "   - प्रत्येक 100 घंटे बाद गियरबॉक्स तेल की जांच करें। केवल **ISO VG 320 सिंथेटिक भारी-ड्यूटी तेल** का उपयोग करें।\n"
-                    "   - तेल बदलने का अंतराल: प्रत्येक 2,000 कार्य घंटे।\n\n"
-                    "2. **हाइड्रोलिक प्रेशर एवं कंपन:**\n"
-                    "   - रोलर बेयरिंग हाइड्रोलिक क्लैम्पिंग प्रेशर **210 bar (±5 bar)** पर स्थिर रहना चाहिए।\n"
-                    "   - कंपन सीमा: 4.5 mm/s RMS से कम होनी चाहिए। यदि 5.0 mm/s से अधिक हो, तो तुरंत लाइन रोकें।"
+                    "**रोलिंग मिल रखरखाव नियम:**\n\n"
+                    "1. गियरबॉक्स तेल प्रत्येक 100 घंटे पर चेक करें। केवल **ISO VG 320 सिंथेटिक तेल** का उपयोग करें।\n"
+                    "2. हाइड्रोलिक क्लैम्पिंग प्रेशर **210 bar (±5 bar)** पर रखें।\n"
+                    "3. अधिकतम कंपन सीमा **4.5 mm/s** है। यदि 5.0 mm/s से ऊपर जाए तो तुरंत मशीन बंद करें।"
                 )
             elif lang == 'mr':
                 return (
-                    f"**रोलिंग मिल मेंटेनन्स SOP ({title}):**\n\n"
-                    "1. **गिअरबॉक्स ऑइल चेकलिस्ट:**\n"
-                    "   - दर १०० तासांनंतर गिअरबॉक्स तेल तपासा. फक्त **ISO VG 320 सिंथेटिक ऑईल** वापरा.\n"
-                    "   - तेल बदलण्याचा कालावधी: दर २,००० तास.\n\n"
-                    "2. **हायड्रोलिक दाब व कंपन:**\n"
-                    "   - हायड्रोलिक दाब **२१० bar (±५ bar)** स्थिर असावा.\n"
-                    "   - व्हायब्रेशन ४.५ mm/s पेक्षा कमी असावे."
+                    "**रोलिंग मिल मेंटेनन्स नियम:**\n\n"
+                    "१. दर १०० तासांनी गिअरबॉक्स ऑईल तपासा. फक्त **ISO VG 320 सिंथेटिक ऑईल** वापरा.\n"
+                    "२. हायड्रोलिक प्रेशर **२१० bar (±५ bar)** वर ठेवा.\n"
+                    "३. कमाल व्हायब्रेशन मर्यादा **४.५ mm/s** आहे. ५.० पेक्षा जास्त झाल्यास मशीन तत्काळ बंद करा."
                 )
             else:
                 return (
-                    f"**Rolling Mill Maintenance SOP ({title}):**\n\n"
-                    "1. **Gearbox Lubrication:**\n"
-                    "   - Check oil levels every 100 operating hours. Use **ISO VG 320 synthetic heavy-duty industrial gear oil** only.\n"
-                    "   - Replacement interval: Every 2,000 operating hours.\n\n"
-                    "2. **Hydraulic Pressure & Calibration:**\n"
-                    "   - Roller bearing hydraulic clamping pressure must remain steady at **210 bar (±5 bar)**.\n"
-                    "   - Vibration sensor limit: Maximum allowable is **4.5 mm/s RMS**. If vibration exceeds 5.0 mm/s, halt the line immediately."
+                    "**Rolling Mill Maintenance Guidelines:**\n\n"
+                    "1. Check gearbox oil every 100 operating hours using **ISO VG 320 synthetic oil** only.\n"
+                    "2. Maintain hydraulic clamping pressure at **210 bar (±5 bar)**.\n"
+                    "3. Maximum allowable vibration is **4.5 mm/s RMS**. If vibration exceeds 5.0 mm/s, stop the line immediately."
                 )
 
         # 3. PPE & General Plant Safety
         if "ppe" in q_lower or "safety" in q_lower or "helmet" in q_lower or "सुरक्षा" in query or "shoes" in q_lower or "पीपीई" in query:
             if lang == 'hi':
                 return (
-                    f"**संयंत्र सुरक्षा एवं PPE नियम ({title}):**\n\n"
-                    "1. **अनिवार्य PPE किट:**\n"
-                    "   - ANSI Z89.1 प्रमाणित हार्ड हैट (हेलमेट)।\n"
-                    "   - स्टील-टो सुरक्षा जूते (Steel-Toe Boots)।\n"
-                    "   - हाई-विजिबिलिटी रिफ्लेक्टिव जैकेट और UV400 सुरक्षा चश्मा।\n"
-                    "   - रोलिंग मिल और ब्लोअर क्षेत्र में 28dB+ कान सुरक्षा प्लग।\n\n"
-                    "2. **सामान्य नियम:**\n"
-                    "   - कारखाने में धूम्रपान पर पूर्ण प्रतिबंध (Zero Tolerance No-Smoking)।\n"
-                    "   - ड्यूटी से पहले अनिवार्य बायोमेट्रिक एवं ब्रेथलाइज़र टेस्ट।"
+                    "**कारखाना सुरक्षा एवं PPE नियम:**\n\n"
+                    "1. सुरक्षा हेलमेट (Hard Hat) और स्टील-टो जूते पहनना अनिवार्य है।\n"
+                    "2. हाई-विजिबिलिटी जैकेट और सुरक्षा चश्मा पहनें।\n"
+                    "3. रोलिंग मिल क्षेत्र में 28dB+ इयर प्लग का उपयोग करें।\n"
+                    "4. पूरे संयंत्र परिसर में धूम्रपान पर पूर्ण प्रतिबंध है।"
                 )
             elif lang == 'mr':
                 return (
-                    f"**कारखाना सुरक्षा व PPE नियम ({title}):**\n\n"
-                    "1. **अनिवार्य PPE किट:**\n"
-                    "   - हार्ड हॅट (हेल्मेट), स्टील-टो सेफ्टी बूट, रिफ्लेक्टिव्ह जॅकेट आणि सुरक्षा चष्मा.\n"
-                    "   - रोलिंग मिल परिसरात इअर प्लग (28dB+).\n\n"
-                    "2. **कारखाना नियम:**\n"
-                    "   - परिसरात धूम्रपान करण्यास सक्त मनाई.\n"
-                    "   - ड्युटीपूर्वी अल्कोहोल ब्रेथलायझर चाचणी अनिवार्य."
+                    "**कारखाना सुरक्षा व PPE नियम:**\n\n"
+                    "१. हेल्मेट आणि स्टील-टो सेफ्टी बूट घालणे बंधनकारक आहे.\n"
+                    "२. रिफ्लेक्टिव्ह जॅकेट आणि सुरक्षा चष्मा वापरा.\n"
+                    "३. रोलिंग मिल भागात २८dB+ इअर प्लग लावा.\n"
+                    "४. संपूर्ण कारखान्यात धूम्रपान करण्यास सक्त मनाई आहे."
                 )
             else:
                 return (
-                    f"**Plant General Safety & PPE Guidelines ({title}):**\n\n"
-                    "1. **Mandatory Floor PPE (Level 1):**\n"
-                    "   - ANSI Z89.1 certified Hard Hat.\n"
-                    "   - Steel-Toe Safety Boots with puncture-resistant soles.\n"
-                    "   - High-Visibility Reflective Vest and UV400 Safety Goggles.\n"
-                    "   - Ear protection (NRR 28dB+ muffs) in Rolling Mill & Blower zones.\n\n"
-                    "2. **Plant Prohibitions:**\n"
-                    "   - Strict zero-tolerance no-smoking policy across all zones.\n"
-                    "   - Mandatory pre-shift breathalyzer and biometric verification."
+                    "**Plant Safety & PPE Guidelines:**\n\n"
+                    "1. Always wear certified Hard Hat and Steel-Toe Safety Boots on the floor.\n"
+                    "2. Wear High-Visibility Reflective Vest and Safety Goggles.\n"
+                    "3. Use 28dB+ ear plugs in the Rolling Mill area.\n"
+                    "4. Strict zero-tolerance no-smoking policy across all plant areas."
                 )
 
         # 4. Steel Quality & Hardness Testing
         if "hardness" in q_lower or "testing" in q_lower or "hrc" in q_lower or "rockwell" in q_lower or "हार्डनेस" in query or "गुणवत्ता" in query:
             if lang == 'hi':
                 return (
-                    f"**स्टील गुणवत्ता एवं हार्डनेस परीक्षण SOP ({title}):**\n\n"
-                    "1. **रॉकवेल हार्डनेस (Rockwell Hardness C - HRC):**\n"
-                    "   - हाई कार्बन स्टील ग्राइंडिंग बॉल्स की सतह पर हार्डनेस **58 से 65 HRC** के बीच होनी चाहिए।\n"
-                    "   - वॉल्यूमेट्रिक केंद्र (Core) पर न्यूनतम **55 HRC** अनिवार्य है।\n"
-                    "   - परीक्षण मानक: **ASTM E18** डायमंड इंडेंटर (150 kgf लोड)।\n\n"
-                    "2. **माइक्रोस्ट्रक्चर एवं सतह अखंडता:**\n"
-                    "   - मार्टेंसिटिक ग्रेन संरचना (5% से कम रिटेंड ऑस्टेनाइट)।\n"
-                    "   - सतह पर 0.2 मिमी से अधिक गहरा कोई क्रैक नहीं होना चाहिए।"
+                    "**स्टील गुणवत्ता एवं हार्डनेस मानक:**\n\n"
+                    "1. ग्राइंडिंग बॉल्स की सतह पर हार्डनेस **58 से 65 HRC** होनी चाहिए।\n"
+                    "2. कोर (मध्य) पर न्यूनतम **55 HRC** अनिवार्य है।\n"
+                    "3. परीक्षण मानक: **ASTM E18** रॉकवेल हार्डनेस स्केल।\n"
+                    "4. सतह पर 0.2 मिमी से गहरा कोई क्रैक नहीं होना चाहिए।"
                 )
             elif lang == 'mr':
                 return (
-                    f"**स्टील गुणवत्ता आणि हार्डनेस चाचणी SOP ({title}):**\n\n"
-                    "1. **रॉकवेल हार्डनेस (HRC):**\n"
-                    "   - हाय कार्बन स्टील बॉल्सच्या पृष्ठभागावर **58 ते 65 HRC** असणे आवश्यक आहे.\n"
-                    "   - केंद्रात किमान **55 HRC**.\n"
-                    "   - चाचणी मानक: **ASTM E18** डायमंड इंडेंटर (150 kgf लोड).\n\n"
-                    "2. **मायक्रोस्ट्रक्चर आणि पृष्ठभाग:**\n"
-                    "   - मार्टेन्सिटिक रचना (5% पेक्षा कमी रिटेन्ड ऑस्टेनाईट).\n"
-                    "   - 0.2 मिमी पेक्षा जास्त क्रॅक चालणार नाही."
+                    "**स्टील गुणवत्ता आणि हार्डनेस मानक:**\n\n"
+                    "१. पृष्ठभागावरील हार्डनेस **५८ ते ६५ HRC** असावी.\n"
+                    "२. मध्यभागी किमान **५५ HRC** असणे आवश्यक आहे.\n"
+                    "३. चाचणी मानक: **ASTM E18** रॉकवेल स्केल.\n"
+                    "४. ०.२ मिमी पेक्षा जास्त क्रॅक चालणार नाही."
+                )
+            else:
+                return (
+                    "**Steel Quality & Hardness Standards:**\n\n"
+                    "1. Surface hardness for grinding balls must be **58 to 65 HRC**.\n"
+                    "2. Core (center) hardness must be at least **55 HRC**.\n"
+                    "3. Testing Standard: **ASTM E18** Rockwell Hardness scale.\n"
+                    "4. Surface defects: No cracks deeper than 0.2 mm allowed."
                 )
             else:
                 return (
