@@ -288,6 +288,7 @@ export default function ChatWindow({ activeRole }) {
               body: formData,
             });
             const data = await res.json();
+            setIsLoading(false);
             if (data && data.text && data.text.trim()) {
               const detectedLanguage = data.language || 'auto';
               setCurrentDetectedLang(detectedLanguage);
@@ -625,7 +626,8 @@ export default function ChatWindow({ activeRole }) {
   // Zero-Latency Streaming + Dynamic Multi-Language Message Handler
   const handleSendMessage = async (queryToSend, forcedLang) => {
     const query = (queryToSend || inputQuery).trim();
-    if (!query || isLoading) return;
+    if (!query) return;
+    if (!queryToSend && isLoading) return;
 
     // Zero-Latency Barge-In: immediately cut off any playing speech
     unlockAudioContext();
