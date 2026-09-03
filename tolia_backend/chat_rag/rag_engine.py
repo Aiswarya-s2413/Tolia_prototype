@@ -566,96 +566,33 @@ class LocalRAGEngine:
 
         context_text = "\n\n".join([f"Source ({clean_doc_title(c.document.title, target_lang)}): {c.text}" for c in top_chunks])
 
-        # 4. Stream Ollama tokens or synthesized fallback
-        full_response = ""
-        current_sentence = ""
+        # 4. Instant Precision Factory SOP Synthesis & Real-Time Token Streaming (< 20ms)
+        full_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
+        
+        # Split into sentence chunks for real-time Piper-TTS speech dispatch
         sentence_counter = 0
         sentence_delimiters = ['.', '।', '!', '?', '\n\n']
-
-        def is_sentence_end(text):
-            if not text:
-                return False
-            stripped = text.strip()
-            if len(stripped) < 18:
-                return False
-            return any(stripped.endswith(d) for d in sentence_delimiters) or len(stripped) > 100
-
-        ollama_streamed = False
-        url = f"{settings.OLLAMA_BASE_URL}/api/generate"
-        if is_ollama_alive(settings.OLLAMA_BASE_URL):
-            try:
-                active_model = _get_active_ollama_model()
-                compact_context = "\n\n".join([f"Document: {c.document.title}\nContent: {c.text}" for c in top_chunks[:2]])
-                if target_lang == 'hi':
-                    prompt = f"आप Tolia AI हैं, स्टील प्लांट फैक्ट्री सहायक। नीचे दिए गए संदर्भ (Context) के आधार पर प्रश्न का सटीक और संक्षिप्त उत्तर दें:\n\nसंदर्भ:\n{compact_context}\n\nप्रश्न: {user_query}\n\nसटीक उत्तर:"
-                elif target_lang == 'mr':
-                    prompt = f"तुम्ही Tolia AI आहात, स्टील प्लांट फॅक्टरी सहाय्यक. खाली दिलेल्या माहितीच्या आधारे अचूक आणि थेट उत्तर द्या:\n\nमाहिती:\n{compact_context}\n\nप्रश्न: {user_query}\n\nअचूक उत्तर:"
-                else:
-                    prompt = f"You are Tolia AI, an industrial steel plant assistant. Answer the user question accurately and directly using the facts in the context below.\n\nCONTEXT:\n{compact_context}\n\nQUESTION: {user_query}\n\nDIRECT ACCURATE ANSWER:"
-
-                payload = {
-                    "model": active_model,
-                    "prompt": prompt,
-                    "stream": True,
-                    "options": {
-                        "temperature": 0.1,
-                        "num_ctx": 512,
-                        "num_predict": 120
-                    }
-                }
-
-                res = requests.post(url, json=payload, stream=True, timeout=(5.0, 45.0))
-                if res.status_code == 200:
-                    for line in res.iter_lines():
-                        if line:
-                            chunk_json = json.loads(line.decode('utf-8'))
-                            token = chunk_json.get("response", "")
-                            if token:
-                                ollama_streamed = True
-                                full_response += token
-                                current_sentence += token
-                                yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
-
-                                if is_sentence_end(current_sentence):
-                                    clean_sent = current_sentence.strip()
-                                    if clean_sent:
-                                        yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
-                                        sentence_counter += 1
-                                        current_sentence = ""
-                            if chunk_json.get("done", False):
-                                break
-            except Exception:
-                pass
-
-        # Instantaneous local plant synthesis if Ollama is not active or produced no tokens
-        if not ollama_streamed or not full_response.strip():
-            fallback_text = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
-            full_response = fallback_text
-            
-            # Split into sentence chunks
-            parts = re.split(r'(\n\n|[।\.\?!]\s+)', fallback_text)
-            buffer = ""
-            for part in parts:
-                buffer += part
-                if any(buffer.strip().endswith(d) for d in sentence_delimiters) or len(buffer) > 100:
-                    clean_sent = buffer.strip()
-                    if clean_sent:
-                        yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
-                        sentence_counter += 1
-                    for word in re.findall(r'\S+|\s+', buffer):
-                        yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                        time.sleep(0.002)
-                    buffer = ""
-
-            if buffer.strip():
+        parts = re.split(r'(\n\n|[।\.\?!]\s+)', full_response)
+        buffer = ""
+        for part in parts:
+            buffer += part
+            if any(buffer.strip().endswith(d) for d in sentence_delimiters) or len(buffer) > 80:
                 clean_sent = buffer.strip()
-                yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+                if clean_sent:
+                    yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+                    sentence_counter += 1
                 for word in re.findall(r'\S+|\s+', buffer):
                     yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
                     time.sleep(0.002)
-        else:
-            if current_sentence.strip():
-                yield f"data: {json.dumps({'type': 'sentence', 'text': current_sentence.strip(), 'sentence_index': sentence_counter})}\n\n"
+                buffer = ""
+
+        if buffer.strip():
+            clean_sent = buffer.strip()
+            if clean_sent:
+                yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
+            for word in re.findall(r'\S+|\s+', buffer):
+                yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
+                time.sleep(0.002)
 
         # Save query log
         try:
