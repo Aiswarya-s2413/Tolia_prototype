@@ -177,7 +177,7 @@ export default function ChatWindow({ activeRole }) {
       const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
 
-      // Real-time Adaptive Audio Level Analyzer & Dynamic VAD
+      // Real-time Adaptive Time-Domain RMS Audio Level Analyzer & Dynamic VAD
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (AudioCtx) {
@@ -185,52 +185,66 @@ export default function ChatWindow({ activeRole }) {
           if (ctx.state === 'suspended') await ctx.resume();
           const source = ctx.createMediaStreamSource(stream);
           const analyser = ctx.createAnalyser();
-          analyser.fftSize = 128;
-          analyser.smoothingTimeConstant = 0.4;
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.2;
           source.connect(analyser);
           audioAnalyserRef.current = { ctx, analyser };
 
-          let noiseFloor = 6;
-          let calibrationSamples = 0;
-          let noiseSum = 0;
+          let ambientFloor = 5;
+          let calibrationCount = 0;
+          let calibrationSum = 0;
+          let speechFrames = 0;
+          let silenceStart = 0;
 
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const timeData = new Uint8Array(analyser.fftSize);
           const checkLevel = () => {
             if (!analyser || !mediaStreamRef.current) return;
-            analyser.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-            const avg = sum / dataArray.length;
-            const vol = Math.min(100, Math.round(avg * 2.8));
-            setMicVolume(vol);
+            analyser.getByteTimeDomainData(timeData);
 
-            // Calibrate ambient noise floor during first 400ms (first 25 frames)
-            if (calibrationSamples < 25) {
-              noiseSum += vol;
-              calibrationSamples++;
-              noiseFloor = Math.max(4, Math.round(noiseSum / calibrationSamples));
+            // Calculate true Root Mean Square (RMS) energy
+            let sumSquares = 0;
+            for (let i = 0; i < timeData.length; i++) {
+              const norm = (timeData[i] - 128) / 128;
+              sumSquares += norm * norm;
+            }
+            const rms = Math.sqrt(sumSquares / timeData.length);
+            const currentVol = Math.min(100, Math.round(rms * 220));
+            setMicVolume(currentVol);
+
+            const now = Date.now();
+
+            // Calibrate ambient noise floor for first 250ms (first ~15 frames)
+            if (calibrationCount < 15) {
+              calibrationSum += currentVol;
+              calibrationCount++;
+              ambientFloor = Math.max(3, Math.round(calibrationSum / calibrationCount));
             } else {
-              // True speech threshold: must be noticeably above background noise floor
-              const speechThreshold = Math.max(12, noiseFloor + 7);
-              if (vol >= speechThreshold) {
-                speechDetectedRef.current = true;
-                lastSoundTimeRef.current = Date.now();
+              const speechTrigger = Math.max(10, ambientFloor + 6);
+              const silenceLimit = Math.max(6, ambientFloor + 4);
+
+              if (currentVol >= speechTrigger) {
+                speechFrames++;
+                if (speechFrames >= 3) {
+                  speechDetectedRef.current = true;
+                }
+                silenceStart = 0; // Reset silence timer while active voice is detected
+                lastSoundTimeRef.current = now;
+              } else if (speechDetectedRef.current && currentVol <= silenceLimit) {
+                if (!silenceStart) {
+                  silenceStart = now;
+                } else if (now - silenceStart >= 1000) {
+                  // 1.0s continuous pause detected after speech
+                  console.log("[VAD] Natural voice pause detected (1.0s), auto-submitting audio...");
+                  silenceStart = 0;
+                  stopMediaRecording();
+                  return;
+                }
               }
             }
 
             micAnimFrameRef.current = requestAnimationFrame(checkLevel);
           };
           checkLevel();
-
-          vadIntervalRef.current = setInterval(() => {
-            const now = Date.now();
-            // Auto-submit after 1.2s of silence once user finished speaking
-            if (speechDetectedRef.current && (now - lastSoundTimeRef.current > 1200)) {
-              console.log("[VAD] Voice pause completed (1.2s), auto-submitting audio to VEXYL...");
-              clearInterval(vadIntervalRef.current);
-              stopMediaRecording();
-            }
-          }, 150);
         }
       } catch (e) {
         console.warn("Audio meter setup notice:", e);
