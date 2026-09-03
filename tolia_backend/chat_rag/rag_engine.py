@@ -613,8 +613,8 @@ class LocalRAGEngine:
                     "stream": True,
                     "options": {
                         "temperature": 0.1,
-                        "num_ctx": 2048,
-                        "num_predict": 300
+                        "num_ctx": 512,
+                        "num_predict": 120
                     }
                 }
 
