@@ -198,7 +198,18 @@ class PiperTTSService:
             if voice is None:
                 return None
 
-            chunks = [chunk.audio_int16_bytes for chunk in voice.synthesize(text)]
+            try:
+                from piper import SynthesisConfig
+                # Lively, casual, expressive conversational acoustics
+                syn_config = SynthesisConfig(
+                    length_scale=0.90,       # Upbeat casual speaking pace
+                    noise_scale=0.75,        # Richer voice expressiveness / anti-robotic
+                    noise_w_scale=0.85       # Conversational cadence & natural timing
+                )
+                chunks = [chunk.audio_int16_bytes for chunk in voice.synthesize(text, syn_config=syn_config)]
+            except Exception:
+                chunks = [chunk.audio_int16_bytes for chunk in voice.synthesize(text)]
+
             if not chunks:
                 return None
 
