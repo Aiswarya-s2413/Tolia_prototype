@@ -442,7 +442,7 @@ export default function ChatWindow({ activeRole }) {
     setActiveAudioEngine(null);
   };
 
-  // Play next audio sentence in queue (Gapless Voice Pipelining)
+  // Play next audio sentence in queue (Sequential Gapless Voice Pipelining)
   const playNextInQueue = (msgIndex) => {
     const targetIdx = msgIndex !== undefined && msgIndex !== null ? msgIndex : getLatestBotMessageIndex();
 
@@ -460,24 +460,20 @@ export default function ChatWindow({ activeRole }) {
 
     isPlayingQueueRef.current = true;
     const nextItem = audioQueueRef.current.shift();
-    if (!nextItem || !nextItem.audio) {
+    if (!nextItem || !nextItem.text) {
       playNextInQueue(targetIdx);
       return;
     }
 
-    const audio = nextItem.audio;
+    // Lazy load exactly ONE audio sentence at a time to keep server CPU low (< 20%)
+    const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(nextItem.text)}&lang=${encodeURIComponent(nextItem.lang || 'auto')}`;
+    const audio = new Audio(audioUrl);
     currentAudioRef.current = audio;
 
     audio.onplay = () => {
       setActiveAudioEngine('html5');
       setSpeakingIndex(targetIdx);
       setIsVoicePaused(false);
-      // Gapless pre-buffering: start downloading next audio sentence immediately while current one is playing
-      if (audioQueueRef.current.length > 0 && audioQueueRef.current[0]?.audio) {
-        try {
-          audioQueueRef.current[0].audio.load();
-        } catch (e) {}
-      }
     };
 
     audio.onended = () => {
@@ -509,16 +505,12 @@ export default function ChatWindow({ activeRole }) {
       .replace(/https?:\/\/\S+/g, '')
       .trim();
 
-    // Ignore tiny fragments (e.g. single numbers or symbols) to prevent fragmented audio gaps
-    if (!cleanText || cleanText.length < 8) return;
+    if (!cleanText || cleanText.length < 5) return;
 
     const targetIdx = msgIndex !== undefined && msgIndex !== null ? msgIndex : getLatestBotMessageIndex();
     const langParam = targetLang || 'auto';
-    const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(langParam)}`;
-    const audio = new Audio(audioUrl);
-    audio.preload = 'auto';
 
-    audioQueueRef.current.push({ text: cleanText, audio: audio });
+    audioQueueRef.current.push({ text: cleanText, lang: langParam });
 
     if (!isPlayingQueueRef.current) {
       playNextInQueue(targetIdx);
