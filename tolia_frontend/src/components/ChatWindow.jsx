@@ -142,133 +142,44 @@ export default function ChatWindow({ activeRole }) {
   const micAnimFrameRef = useRef(null);
   const [micVolume, setMicVolume] = useState(0);
   const speechDetectedRef = useRef(false);
-  const speechRecognitionRef = useRef(null);
-  const speechFinalTranscriptRef = useRef('');
 
   const startMediaRecording = async () => {
     try {
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
       if (micAnimFrameRef.current) cancelAnimationFrame(micAnimFrameRef.current);
-      speechFinalTranscriptRef.current = '';
 
-      // 1. Primary Engine: Ultra-Fast Real-Time Web Speech Recognition (0ms server latency)
-      const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (SpeechRec) {
-        try {
-          if (speechRecognitionRef.current) {
-            try { speechRecognitionRef.current.abort(); } catch (e) {}
-          }
-          const recognition = new SpeechRec();
-          recognition.continuous = false;
-          recognition.interimResults = true;
-          recognition.maxAlternatives = 1;
-          
-          let recLang = 'en-IN';
-          if (selectedLanguage === 'hi') recLang = 'hi-IN';
-          else if (selectedLanguage === 'mr') recLang = 'mr-IN';
-          else recLang = 'en-IN';
-          recognition.lang = recLang;
-
-          recognition.onstart = () => {
-            setIsListening(true);
-            setLiveTranscript('Listening... Speak your plant question now...');
-          };
-
-          let autoSubmitTimer = null;
-
-          recognition.onresult = (event) => {
-            let interim = '';
-            let final = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-              const res = event.results[i];
-              if (res.isFinal) {
-                final += res[0].transcript;
-              } else {
-                interim += res[0].transcript;
-              }
-            }
-            const currentText = (final || interim).trim();
-            if (currentText) {
-              speechFinalTranscriptRef.current = currentText;
-              setLiveTranscript(currentText);
-              setInputQuery(currentText);
-
-              // Auto-submit after 700ms pause in speaking
-              if (autoSubmitTimer) clearTimeout(autoSubmitTimer);
-              autoSubmitTimer = setTimeout(() => {
-                console.log("[STT] Voice pause detected, submitting immediately:", currentText);
-                try { recognition.stop(); } catch (e) {}
-              }, 750);
-            }
-          };
-
-          recognition.onerror = (event) => {
-            console.warn("[SpeechRecognition Error]:", event.error);
-            if (event.error !== 'no-speech' && !speechFinalTranscriptRef.current) {
-              // Fallback to MediaRecorder
-              startMediaRecorderFallback();
-            }
-          };
-
-          recognition.onend = () => {
-            setIsListening(false);
-            if (autoSubmitTimer) clearTimeout(autoSubmitTimer);
-            const recognized = speechFinalTranscriptRef.current.trim();
-            if (recognized) {
-              setLiveTranscript('');
-              setInputQuery(recognized);
-              handleSendMessage(recognized, selectedLanguage || 'en');
-            } else {
-              setLiveTranscript('');
-            }
-          };
-
-          speechRecognitionRef.current = recognition;
-          recognition.start();
-          return;
-        } catch (recErr) {
-          console.warn("Native SpeechRecognition start error, falling back to MediaRecorder:", recErr);
-        }
-      }
-
-      // 2. Secondary Fallback: MediaRecorder with RMS VAD
-      await startMediaRecorderFallback();
-    } catch (err) {
-      console.error('Microphone start error:', err);
-      setIsListening(false);
-      setLiveTranscript('Microphone access blocked. Click the Tune/Lock icon in address bar to Allow Mic.');
-    }
-  };
-
-  const startMediaRecorderFallback = async () => {
-    try {
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
       }
 
       speechDetectedRef.current = false;
-      lastSoundTimeRef.current = Date.now();
       setIsListening(true);
-      setLiveTranscript('Listening... Speak now...');
+      setLiveTranscript('Listening (100% On-Premise VEXYL STT)... Speak now...');
 
+      // 100% Local Microphone Stream with hardware echo cancellation
       const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
+        audio: { 
+          echoCancellation: true, 
+          noiseSuppression: true, 
+          autoGainControl: true,
+          channelCount: 1,
+          sampleRate: 16000
+        } 
       });
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
 
-      let mimeType = 'audio/webm';
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-        mimeType = 'audio/mp4';
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
       }
 
       const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       mediaRecorderRef.current = mediaRecorder;
 
+      // Real-time Adaptive Time-Domain RMS Audio Level Analyzer & Dynamic VAD
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         if (AudioCtx) {
@@ -292,6 +203,7 @@ export default function ChatWindow({ activeRole }) {
             if (!analyser || !mediaStreamRef.current) return;
             analyser.getByteTimeDomainData(timeData);
 
+            // Calculate true Root Mean Square (RMS) energy
             let sumSquares = 0;
             for (let i = 0; i < timeData.length; i++) {
               const norm = (timeData[i] - 128) / 128;
@@ -316,11 +228,12 @@ export default function ChatWindow({ activeRole }) {
                   speechDetectedRef.current = true;
                 }
                 silenceStart = 0;
-                lastSoundTimeRef.current = now;
               } else if (speechDetectedRef.current && currentVol <= silenceLimit) {
                 if (!silenceStart) {
                   silenceStart = now;
-                } else if (now - silenceStart >= 800) {
+                } else if (now - silenceStart >= 750) {
+                  // 750ms natural pause detected after speech
+                  console.log("[VAD] Voice pause detected (750ms), auto-submitting to local VEXYL STT...");
                   silenceStart = 0;
                   stopMediaRecording();
                   return;
@@ -363,7 +276,7 @@ export default function ChatWindow({ activeRole }) {
           formData.append('language', selectedLanguage || 'auto');
 
           try {
-            setLiveTranscript('Transcribing speech...');
+            setLiveTranscript('Transcribing with on-premise VEXYL STT (Port 8001)...');
             setIsLoading(true);
             const res = await fetch('/api/voice/transcribe/', {
               method: 'POST',
@@ -383,7 +296,7 @@ export default function ChatWindow({ activeRole }) {
             }
           } catch (err) {
             console.error('STT transcription error:', err);
-            setLiveTranscript('STT service error. Please try again.');
+            setLiveTranscript('Local STT error. Please try again.');
             setIsLoading(false);
             setTimeout(() => setLiveTranscript(''), 3000);
           }
@@ -395,18 +308,13 @@ export default function ChatWindow({ activeRole }) {
 
       mediaRecorder.start(200);
     } catch (err) {
-      console.error('Microphone fallback start error:', err);
+      console.error('Microphone start error:', err);
       setIsListening(false);
-      setLiveTranscript('Microphone access blocked.');
+      setLiveTranscript('Microphone access blocked. Click the Tune/Lock icon in address bar to Allow Mic.');
     }
   };
 
   const stopMediaRecording = () => {
-    if (speechRecognitionRef.current) {
-      try {
-        speechRecognitionRef.current.stop();
-      } catch (e) {}
-    }
     if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (micAnimFrameRef.current) cancelAnimationFrame(micAnimFrameRef.current);
