@@ -274,7 +274,7 @@ export default function ChatWindow({ activeRole }) {
         if (audioBlob.size > 80) {
           const formData = new FormData();
           formData.append('audio', audioBlob, 'audio.webm');
-          formData.append('language', selectedLanguage || 'auto');
+          formData.append('language', currentDetectedLang || 'auto');
 
           try {
             setLiveTranscript('Transcribing with on-premise VEXYL STT...');
@@ -286,7 +286,7 @@ export default function ChatWindow({ activeRole }) {
             const data = await res.json();
             setIsLoading(false);
             if (data && data.text && data.text.trim()) {
-              const detectedLanguage = data.language || selectedLanguage || 'en';
+              const detectedLanguage = data.language || currentDetectedLang || 'en';
               setCurrentDetectedLang(detectedLanguage);
               setInputQuery(data.text);
               setLiveTranscript('');
