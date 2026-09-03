@@ -142,6 +142,7 @@ export default function ChatWindow({ activeRole }) {
   const micAnimFrameRef = useRef(null);
   const [micVolume, setMicVolume] = useState(0);
   const speechDetectedRef = useRef(false);
+  const vadIntervalRef = useRef(null);
 
   const startMediaRecording = async () => {
     try {
