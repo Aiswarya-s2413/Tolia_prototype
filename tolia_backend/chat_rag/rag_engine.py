@@ -138,34 +138,49 @@ def is_general_or_meta_query(query_text):
     # 1. Direct Regex Patterns
     patterns = [
         r'\b(what\s+(all\s+)?(things\s+)?can\s+you\s+do)\b',
+        r'\b(what\s+are\s+you)\b',
+        r'\b(who\s+are\s+you)\b',
+        r'\b(what\s+is\s+your\s+name)\b',
+        r'\b(who\s+is\s+tolia(\s+ai)?)\b',
+        r'\b(what\s+is\s+tolia(\s+ai)?)\b',
+        r'\b(who\s+(created|built|made|developed)\s+you)\b',
+        r'\b(tell\s+me\s+about\s+yourself)\b',
+        r'\b(introduce\s+yourself)\b',
         r'\b(what\s+are\s+your\s+(functionalities|functionality|functions|features|capabilities|capability|services|tasks|roles|skills|uses))\b',
         r'\b(what\s+is\s+your\s+(functionality|function|purpose|feature|capability|role|job|task))\b',
         r'\b(what\s+is\s+(its|this)\s+(purpose|functionality|feature|role))\b',
         r'\b(what\s+(functionalities|capabilities|features)\s+do\s+you\s+have)\b',
         r'\b(what\s+can\s+you\s+do(\s+for\s+me)?)\b',
         r'\b(what\s+do\s+you\s+do)\b',
-        r'\b(who\s+are\s+you)\b',
-        r'\b(what\s+is\s+tolia(\s+ai)?)\b',
         r'\b(how\s+can\s+you\s+(help|assist)(\s+me)?)\b',
         r'\b(what\s+(help|assistance)\s+can\s+you\s+provide)\b',
-        r'\b(tell\s+me\s+about\s+yourself)\b',
         r'\b((explain|describe|list)\s+your\s+(features|capabilities|functionalities|functions))\b',
         r'\b(what\s+is\s+this\s+(system|bot|assistant|app|ai))\b',
         r'\b(how\s+does\s+this\s+(system|bot|assistant|app|ai)\s+work)\b',
         r'\b(how\s+do\s+you\s+work)\b',
         r'\b(kya\s+kar\s+sakte\s+ho)\b',
         r'\b(tum\s+kya\s+karte\s+ho)\b',
+        r'\b(tum\s+kaun\s+ho)\b',
+        r'\b(aap\s+kaun\s+hain)\b',
+        r'\b(tumhara\s+naam\s+kya\s+hai)\b',
         r'\b(tumhara\s+(kya\s+)?(uddeshya|kam|kaam)\s+hai)\b',
         r'\b(aap\s+kya\s+kar\s+sakte\s+hain)\b',
         r'\b(tolia\s+kya\s+hai)\b',
         r'\b(kay\s+karu\s+shakta)\b',
+        r'\b(tu\s+kon\s+aahes)\b',
+        r'\b(tumhi\s+kon\s+aahat)\b',
         r'\b(tuzi\s+mahiti)\b',
         r'\b(tujha\s+uddesh)\b',
         r'(क्या\s+कर\s+सकते)',
+        r'(तुम\s+कौन\s+हो)',
+        r'(आप\s+कौन\s+हैं)',
+        r'(तुम्हारा\s+नाम)',
         r'(तुम्हारा\s+उद्देश्य)',
         r'(टोलिया\s+क्या\s+है)',
         r'(आप\s+क्या\s+कर\s+सकते)',
         r'(काय\s+करू\s+शकता)',
+        r'(तू\s+कोण\s+आहेस)',
+        r'(तुम्ही\s+कोण\s+आहात)',
         r'(काय\s+करतोस)',
         r'(तुझे\s+काम\s+काय)',
         r'(तुझा\s+उद्देश)',
@@ -182,23 +197,24 @@ def is_general_or_meta_query(query_text):
     
     capability_stems = (
         'functio', 'capabilit', 'featur', 'purpos', 'abilit', 'skill', 'task', 'servic',
-        'assist', 'help', 'role', 'work', 'use', 'usage',
+        'assist', 'help', 'role', 'work', 'use', 'usage', 'name', 'identity',
         'kar', 'kam', 'kaam', 'uddeshya', 'shakto', 'shakta', 'madat', 'upayog',
-        'कर', 'काम', 'उद्देश्य', 'मदद', 'करू', 'शकता', 'कार्य', 'वैशिष्ट्ये', 'क्षमता'
+        'कर', 'काम', 'उद्देश्य', 'मदद', 'करू', 'शकता', 'कार्य', 'वैशिष्ट्ये', 'क्षमता', 'नाव', 'नाम'
     )
 
     has_meta = any(w in meta_triggers for w in words_set)
     has_target = any(w in target_tokens for w in words_set)
     has_capability = any(any(w.startswith(stem) for stem in capability_stems) for w in words_set)
 
-    if (has_meta or len(words_set) <= 4) and has_target and has_capability:
+    if has_target and (has_meta or has_capability):
         return True
 
-    if has_target and any(w in {'help', 'features', 'capabilities', 'functionalities', 'purpose', 'skills'} for w in words_set):
+    if has_target and any(w in {'help', 'features', 'capabilities', 'functionalities', 'purpose', 'skills', 'name'} for w in words_set):
         return True
 
     # 3. Simple Greetings
-    if q_clean.strip() in ['hello', 'hi', 'hey', 'namaste', 'namaskar', 'help', 'halo', 'pranam', 'नमस्ते', 'नमस्कार', 'प्रणाम']:
+    greetings = {'hello', 'hi', 'hey', 'namaste', 'namaskar', 'help', 'halo', 'pranam', 'good morning', 'good afternoon', 'good evening', 'नमस्ते', 'नमस्कार', 'प्रणाम'}
+    if q_clean.strip() in greetings or (len(words_set) <= 2 and any(w in greetings for w in words_set)):
         return True
 
     return False
