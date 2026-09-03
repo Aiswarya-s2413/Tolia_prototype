@@ -208,7 +208,6 @@ export default function ChatWindow({ activeRole }) {
             if (!analyser || !mediaStreamRef.current) return;
             analyser.getByteTimeDomainData(timeData);
 
-            // Calculate true Root Mean Square (RMS) energy
             let sumSquares = 0;
             for (let i = 0; i < timeData.length; i++) {
               const norm = (timeData[i] - 128) / 128;
@@ -219,30 +218,18 @@ export default function ChatWindow({ activeRole }) {
             setMicVolume(currentVol);
 
             const now = Date.now();
-            if (calibrationCount < 15) {
-              calibrationSum += currentVol;
-              calibrationCount++;
-              ambientFloor = Math.max(3, Math.round(calibrationSum / calibrationCount));
-            } else {
-              const speechTrigger = Math.max(10, ambientFloor + 6);
-              const silenceLimit = Math.max(6, ambientFloor + 4);
-
-              if (currentVol >= speechTrigger) {
-                speechFrames++;
-                if (speechFrames >= 3) {
-                  speechDetectedRef.current = true;
-                }
+            if (currentVol >= 6) {
+              speechDetectedRef.current = true;
+              silenceStart = 0;
+            } else if (speechDetectedRef.current && currentVol < 6) {
+              if (!silenceStart) {
+                silenceStart = now;
+              } else if (now - silenceStart >= 850) {
+                // 850ms natural pause detected
+                console.log("[VAD] Voice pause detected, submitting to VEXYL STT...");
                 silenceStart = 0;
-              } else if (speechDetectedRef.current && currentVol <= silenceLimit) {
-                if (!silenceStart) {
-                  silenceStart = now;
-                } else if (now - silenceStart >= 750) {
-                  // 750ms natural pause detected after speech
-                  console.log("[VAD] Voice pause detected (750ms), auto-submitting to local VEXYL STT...");
-                  silenceStart = 0;
-                  stopMediaRecording();
-                  return;
-                }
+                stopMediaRecording();
+                return;
               }
             }
 
@@ -254,6 +241,14 @@ export default function ChatWindow({ activeRole }) {
         console.warn("Audio meter setup notice:", e);
       }
 
+      // Max safety recording timeout (8 seconds) to prevent infinite listening
+      silenceTimerRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          console.log("[VAD] Max recording duration reached, submitting...");
+          stopMediaRecording();
+        }
+      }, 8000);
+
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           audioChunksRef.current.push(event.data);
@@ -262,6 +257,7 @@ export default function ChatWindow({ activeRole }) {
 
       mediaRecorder.onstop = async () => {
         if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         if (micAnimFrameRef.current) cancelAnimationFrame(micAnimFrameRef.current);
         if (audioAnalyserRef.current?.ctx) {
           try { audioAnalyserRef.current.ctx.close(); } catch (e) {}
@@ -281,7 +277,7 @@ export default function ChatWindow({ activeRole }) {
           formData.append('language', selectedLanguage || 'auto');
 
           try {
-            setLiveTranscript('Transcribing with on-premise VEXYL STT (Port 8001)...');
+            setLiveTranscript('Transcribing with on-premise VEXYL STT...');
             setIsLoading(true);
             const res = await fetch('/api/voice/transcribe/', {
               method: 'POST',
@@ -290,7 +286,7 @@ export default function ChatWindow({ activeRole }) {
             const data = await res.json();
             setIsLoading(false);
             if (data && data.text && data.text.trim()) {
-              const detectedLanguage = data.language || 'auto';
+              const detectedLanguage = data.language || selectedLanguage || 'en';
               setCurrentDetectedLang(detectedLanguage);
               setInputQuery(data.text);
               setLiveTranscript('');
@@ -330,6 +326,7 @@ export default function ChatWindow({ activeRole }) {
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       try {
+        mediaRecorderRef.current.requestData();
         mediaRecorderRef.current.stop();
       } catch (e) {}
     }
