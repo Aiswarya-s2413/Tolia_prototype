@@ -587,25 +587,13 @@ class LocalRAGEngine:
                 active_model = _get_active_ollama_model()
                 if target_lang == 'hi':
                     system_prompt = (
-                        f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                        f"User role: {user_role}. "
-                        "CRITICAL: Answer strictly and concisely using the provided context facts. Do not invent numbers. Answer in clear HINDI."
-                    )
+                compact_context = "\n\n".join([f"Document: {c.document.title}\nContent: {c.text}" for c in top_chunks[:2]])
+                if target_lang == 'hi':
+                    prompt = f"आप Tolia AI हैं, स्टील प्लांट फैक्ट्री सहायक। नीचे दिए गए संदर्भ (Context) के आधार पर प्रश्न का सटीक और संक्षिप्त उत्तर दें:\n\nसंदर्भ:\n{compact_context}\n\nप्रश्न: {user_query}\n\nसटीक उत्तर:"
                 elif target_lang == 'mr':
-                    system_prompt = (
-                        f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                        f"User role: {user_role}. "
-                        "CRITICAL: Answer strictly and concisely using the provided context facts. Do not invent numbers. Answer in clear MARATHI."
-                    )
+                    prompt = f"तुम्ही Tolia AI आहात, स्टील प्लांट फॅक्टरी सहाय्यक. खाली दिलेल्या माहितीच्या आधारे अचूक आणि थेट उत्तर द्या:\n\nमाहिती:\n{compact_context}\n\nप्रश्न: {user_query}\n\nअचूक उत्तर:"
                 else:
-                    system_prompt = (
-                        f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                        f"User role: {user_role}. "
-                        "CRITICAL: Answer directly, accurately, and concisely in 2-3 structured points using the provided context facts. Answer in clear ENGLISH."
-                    )
-
-                compact_context = "\n".join([f"- {c.document.title}: {c.text}" for c in top_chunks[:3]])
-                prompt = f"{system_prompt}\n\nFACTORY SOP CONTEXT:\n{compact_context}\n\nUSER QUESTION:\n{user_query}\n\nACCURATE ANSWER:"
+                    prompt = f"You are Tolia AI, an industrial steel plant assistant. Answer the user question accurately and directly using the facts in the context below.\n\nCONTEXT:\n{compact_context}\n\nQUESTION: {user_query}\n\nDIRECT ACCURATE ANSWER:"
 
                 payload = {
                     "model": active_model,
