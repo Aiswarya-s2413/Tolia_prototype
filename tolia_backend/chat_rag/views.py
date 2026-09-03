@@ -150,10 +150,12 @@ class SeedDataView(APIView):
         })
 
 class VoiceTranscribeView(APIView):
-    """Local Speech-to-Text (STT) endpoint using faster-whisper / local Indic speech models."""
+    """Local Speech-to-Text (STT) endpoint using faster-whisper / local Indic speech models with dynamic auto-detection."""
     def post(self, request):
         audio_file = request.FILES.get('audio')
-        language = request.data.get('language', 'en')
+        language = request.data.get('language', None)
+        if language in ['auto', '', 'undefined', 'null']:
+            language = None
         
         if not audio_file:
             return Response({'error': 'Audio file is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -165,7 +167,7 @@ class VoiceTranscribeView(APIView):
         if result.get('success'):
             return Response({
                 'text': result['text'],
-                'language': result.get('language', language)
+                'language': result.get('language', 'en')
             })
         else:
             return Response({'error': result.get('error', 'Transcription failed')}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -173,15 +175,19 @@ class VoiceTranscribeView(APIView):
 from django.http import HttpResponse
 
 class VoiceSynthesizeView(APIView):
-    """Local Text-to-Speech (TTS) endpoint returning WAV audio stream."""
+    """Local Text-to-Speech (TTS) endpoint returning WAV audio stream with dynamic language voice selection."""
     def get(self, request):
         text = request.query_params.get('text', '').strip()
-        language = request.query_params.get('lang', 'en')
+        language = request.query_params.get('lang', None)
+        if language in ['auto', '', 'undefined', 'null']:
+            language = None
         return self._generate_audio(text, language)
 
     def post(self, request):
         text = request.data.get('text', '').strip()
-        language = request.data.get('lang', 'en')
+        language = request.data.get('lang', None)
+        if language in ['auto', '', 'undefined', 'null']:
+            language = None
         return self._generate_audio(text, language)
 
     def _generate_audio(self, text, language):

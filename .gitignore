@@ -10,6 +10,8 @@ __pycache__/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
+*.onnx
+tolia_backend/piper_models/*.onnx
 
 # Node / Frontend
 node_modules/

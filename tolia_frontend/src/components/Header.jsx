@@ -92,20 +92,11 @@ export default function Header({ activeTab, setActiveTab, activeRole, setRole, l
               </button>
             </div>
 
-            {/* Language Switcher */}
-            <div className="relative flex items-center">
-              <Globe className="w-3.5 h-3.5 text-cyan-400 absolute left-2.5 pointer-events-none z-10" />
-              <select
-                value={lang}
-                onChange={(e) => setLang(e.target.value)}
-                className="bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-800 rounded-xl pl-8 pr-7 py-1.5 text-xs font-semibold transition-all shadow-sm focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer"
-                title="Select Language"
-              >
-                <option value="en">English (EN)</option>
-                <option value="hi">हिंदी (HI)</option>
-                <option value="mr">मराठी (MR)</option>
-              </select>
-              <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2.5 pointer-events-none" />
+            {/* Dynamic Auto-Detect Multi-Language Badge */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold text-slate-300 shadow-sm">
+              <Globe className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+              <span className="text-cyan-300 font-bold">Auto-Detect</span>
+              <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">(EN • HI • MR)</span>
             </div>
 
           </div>

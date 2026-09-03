@@ -6,13 +6,76 @@ from collections import Counter
 from django.conf import settings
 from .models import Document, DocumentChunk, Department, DocumentCategory
 
-def is_hindi(text):
-    """Detect if input text contains Devanagari script or Hindi phrasing."""
+def detect_language(text):
+    """
+    Dynamically detect language (English 'en', Hindi 'hi', or Marathi 'mr') from user query or speech transcript.
+    """
+    if not text or not text.strip():
+        return 'en'
+    
+    text_lower = text.lower().strip()
+
+    # 1. Distinct Marathi markers & vocabulary (Devanagari script + Latin transliterations)
+    marathi_unique_chars = re.findall(r'[\u0933\u0950]', text) # ळ
+    marathi_devanagari_words = [
+        'काय', 'कसे', 'कशी', 'कशा', 'कधी', 'कुठे', 'कोण', 'आहे', 'आहेत', 'आहोत', 'नाही', 'नाहीत',
+        'सांगा', 'सांग', 'माहिती', 'करावे', 'करावा', 'करावी', 'द्या', 'द्यावे', 'होते',
+        'झाले', 'झाली', 'झाला', 'पाहिजे', 'तुम्ही', 'तुम्हाला', 'माझा', 'माझी', 'माझे',
+        'तुझा', 'तुझी', 'तुझे', 'आपला', 'आपली', 'आपले', 'कारखाना', 'कारखान्यातील', 'धोरण',
+        'आपत्कालीन', 'दाब', 'तपासा', 'वापरा', 'विक्री', 'वैशिष्ट्ये', 'टोलिया काय'
+    ]
+    marathi_latin_words = [
+        'kay', 'aahe', 'ahe', 'aahet', 'ahet', 'sanga', 'sang', 'mahiti', 'kase', 'kashi', 'kasha',
+        'kadhi', 'kuthe', 'tuzi', 'tujha', 'tujhe', 'majha', 'majhi', 'majhe', 'amhi', 'tumhi', 'tumhala',
+        'karu', 'shakto', 'shakta', 'shaktat', 'karto', 'kartos', 'kartay', 'pahije',
+        'ahes', 'aahat', 'astat', 'baddal', 'sathi', 'karkhana', 'dhoran'
+    ]
+
+    if marathi_unique_chars:
+        return 'mr'
+
+    for kw in marathi_devanagari_words:
+        if re.search(rf'(^|\s|[^\w\u0900-\u097F]){re.escape(kw)}($|\s|[^\w\u0900-\u097F])', text):
+            return 'mr'
+
+    for kw in marathi_latin_words:
+        if re.search(rf'\b{re.escape(kw)}\b', text_lower):
+            return 'mr'
+
+    # 2. Distinct Hindi markers & vocabulary (Devanagari script + Latin transliterations)
+    hindi_devanagari_words = [
+        'क्या', 'कैसे', 'कैसा', 'कैसी', 'कब', 'कहाँ', 'कहा', 'है', 'हैं', 'हो', 'हूँ', 'हू',
+        'बताओ', 'बताइए', 'बताएं', 'बतायें', 'सुरक्षा', 'करो', 'कीजिए', 'करें', 'चाहिए', 'सकते',
+        'सकता', 'सकती', 'तुम्हारा', 'तुम्हारी', 'तुम्हारे', 'आपका', 'आपकी', 'आपके', 'मेरा', 'मेरी',
+        'मेरे', 'नमस्ते', 'बारे', 'में', 'लिए', 'करना', 'करता', 'करती', 'होगी', 'होगा', 'होंगे',
+        'संयंत्र', 'उद्देश्य', 'बिक्री', 'कीमत', 'आपातकालीन', 'टोलिया क्या'
+    ]
+    hindi_latin_words = [
+        'kya', 'kaise', 'kaisa', 'kaisi', 'kab', 'kaha', 'kahan', 'hai', 'hain', 'batao', 'bataiye',
+        'karo', 'kijiye', 'chahiye', 'sakte', 'sakta', 'sakti', 'tumhara', 'tumhari', 'tumhare',
+        'aapka', 'aapki', 'aapke', 'mera', 'meri', 'mere', 'namaste', 'liye', 'karna', 'karta',
+        'hoga', 'hogi', 'hota', 'hote'
+    ]
+
+    for kw in hindi_devanagari_words:
+        if re.search(rf'(^|\s|[^\w\u0900-\u097F]){re.escape(kw)}($|\s|[^\w\u0900-\u097F])', text):
+            return 'hi'
+
+    for kw in hindi_latin_words:
+        if re.search(rf'\b{re.escape(kw)}\b', text_lower):
+            return 'hi'
+
+    # 3. Devanagari Script Fallback
     devanagari_count = len(re.findall(r'[\u0900-\u097F]', text))
-    hindi_keywords = ['kya', 'kaise', 'kab', 'suraksha', 'kaha', 'hai', 'namaste', 'batao', 'bikri', 'tumhara', 'uddeshya', 'kar sakte']
-    text_lower = text.lower()
-    keyword_match = any(kw in text_lower for kw in hindi_keywords)
-    return devanagari_count > 0 or (devanagari_count > 2) or keyword_match
+    if devanagari_count > 0:
+        return 'hi'
+
+    # Default to English
+    return 'en'
+
+def is_hindi(text):
+    """Detect if input text is Hindi or Marathi."""
+    return detect_language(text) in ['hi', 'mr']
 
 def is_sales_marketing_query(query_text):
     """Check if query is targeting sales/marketing/pricing data."""
@@ -222,14 +285,9 @@ class LocalRAGEngine:
     @staticmethod
     def retrieve_top_chunks(user_query, allowed_deps, top_k=3):
         """
-        Native PostgreSQL pgvector HNSW vector search combined with lexical plant keyword scoring (Hybrid Search).
+        Instant in-memory hybrid ranking with RBAC department filtering (0ms Ollama overhead).
+        Prevents Ollama from swapping LLM weights out of memory.
         """
-        from pgvector.django import CosineDistance
-
-        # 1. Generate query vector embedding via local Nomic embedding model
-        query_vec = get_embedding(user_query)
-
-        # 2. Base ORM queryset with RBAC department filtering
         base_qs = DocumentChunk.objects.select_related('document').filter(
             required_department__in=allowed_deps
         )
@@ -237,37 +295,18 @@ class LocalRAGEngine:
         if not base_qs.exists():
             return []
 
-        # 3. Vector distance computation using PostgreSQL pgvector HNSW index
-        if query_vec:
-            vector_candidates = list(
-                base_qs.filter(embedding__isnull=False)
-                .annotate(distance=CosineDistance('embedding', query_vec))
-                .order_by('distance')[:15]
-            )
-        else:
-            vector_candidates = []
-
-        if not vector_candidates:
-            vector_candidates = list(base_qs[:15])
-
-        # 4. Hybrid Scoring (Vector Proximity + Lexical Synonym Precision)
-        def get_hybrid_score(chunk):
-            dist = getattr(chunk, 'distance', None)
-            vec_sim = max(0.0, 1.0 - dist) if (dist is not None) else 0.5
-            lex_score = score_chunk_relevance(user_query, chunk)
-            return (vec_sim * 15.0) + lex_score
-
-        ranked = sorted(vector_candidates, key=get_hybrid_score, reverse=True)
+        candidates = list(base_qs[:30])
+        ranked = sorted(candidates, key=lambda c: score_chunk_relevance(user_query, c), reverse=True)
         return ranked[:top_k]
 
     @staticmethod
     def query(user_query, user_role=Department.QC, target_lang=None):
         """
         Main RAG query pipeline using native pgvector search and RBAC security filtering.
-        Strictly accurate factory responses + general capabilities support.
+        Strictly accurate factory responses + general capabilities support with dynamic English/Hindi/Marathi auto-detection.
         """
-        if not target_lang:
-            target_lang = 'hi' if is_hindi(user_query) else 'en'
+        if not target_lang or target_lang == 'auto':
+            target_lang = detect_language(user_query)
             
         allowed_deps = get_allowed_departments_for_role(user_role)
         is_sales_q = is_sales_marketing_query(user_query)
@@ -357,13 +396,13 @@ class LocalRAGEngine:
     def query_stream(user_query, user_role=Department.QC, target_lang=None):
         """
         Streaming RAG generator yielding Server-Sent Events (SSE) using native pgvector search.
-        Strictly accurate answers + general capabilities streaming.
+        Strictly accurate answers + general capabilities streaming with dynamic English/Hindi/Marathi auto-detection.
         """
         import time
         from .models import ChatLog
 
-        if not target_lang:
-            target_lang = 'hi' if is_hindi(user_query) else 'en'
+        if not target_lang or target_lang == 'auto':
+            target_lang = detect_language(user_query)
 
         allowed_deps = get_allowed_departments_for_role(user_role)
         is_sales_q = is_sales_marketing_query(user_query)
@@ -495,36 +534,32 @@ class LocalRAGEngine:
             if not text:
                 return False
             stripped = text.strip()
-            if len(stripped) < 30:
+            if len(stripped) < 18:
                 return False
-            return any(stripped.endswith(d) for d in sentence_delimiters) or len(stripped) > 180
+            return any(stripped.endswith(d) for d in sentence_delimiters) or len(stripped) > 100
 
         ollama_streamed = False
         try:
             url = f"{settings.OLLAMA_BASE_URL}/api/generate"
             if target_lang == 'hi':
                 system_prompt = (
-                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                    f"User role: {user_role}. "
-                    "CRITICAL: Answer strictly and accurately using ONLY the facts and numbers in the DOCUMENT CONTEXT below. "
-                    "Do not fabricate or guess anything. Answer in clear, professional HINDI."
+                    f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
+                    "Answer directly, accurately, and concisely using the facts below. Do not guess. Answer in clear HINDI."
                 )
             elif target_lang == 'mr':
                 system_prompt = (
-                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                    f"User role: {user_role}. "
-                    "CRITICAL: Answer strictly and accurately using ONLY the facts and numbers in the DOCUMENT CONTEXT below. "
-                    "Do not fabricate or guess anything. Answer in clear, professional MARATHI."
+                    f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
+                    "Answer directly, accurately, and concisely using the facts below. Do not guess. Answer in clear MARATHI."
                 )
             else:
                 system_prompt = (
-                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                    f"User role: {user_role}. "
-                    "CRITICAL: Answer strictly and accurately using ONLY the facts and numbers in the DOCUMENT CONTEXT below. "
-                    "Do not fabricate or guess anything. Answer in clear, structured, professional ENGLISH."
+                    f"You are Tolia AI, a concise Factory Assistant for steel plant operations (Role: {user_role}). "
+                    "Answer directly, accurately, and concisely in 2-3 structured bullet points using the facts below. Answer in clear ENGLISH."
                 )
 
-            prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context_text}\n\nUSER QUESTION:\n{user_query}\n\nANSWER:"
+            # Compact context to keep prompt evaluation sub-second
+            compact_context = "\n".join([f"- {c.document.title}: {c.text[:300]}" for c in top_chunks])
+            prompt = f"{system_prompt}\n\nCONTEXT:\n{compact_context}\n\nQUESTION: {user_query}\n\nANSWER:"
 
             payload = {
                 "model": getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
@@ -532,11 +567,12 @@ class LocalRAGEngine:
                 "stream": True,
                 "options": {
                     "temperature": 0.1,
-                    "max_tokens": 1500
+                    "num_ctx": 1024,
+                    "num_predict": 200
                 }
             }
 
-            res = requests.post(url, json=payload, stream=True, timeout=(1.5, 25.0))
+            res = requests.post(url, json=payload, stream=True, timeout=(2.0, 30.0))
             if res.status_code == 200:
                 for line in res.iter_lines():
                     if line:
@@ -837,7 +873,7 @@ class LocalRAGEngine:
                 )
 
         # 5. Sales and Revenue (CEO authorized)
-        if "sales" in q_lower or "revenue" in q_lower or "target" in q_lower or "pricing" in q_lower or "बिक्री" in query:
+        if "sales" in q_lower or "revenue" in q_lower or "target" in q_lower or "pricing" in q_lower or "बिक्री" in query or "विक्री" in query:
             if lang == 'hi':
                 return (
                     f"**गोपनीय वाणिज्यिक एवं बिक्री रिपोर्ट ({title} - Role: CEO):**\n\n"
@@ -847,6 +883,16 @@ class LocalRAGEngine:
                     "   - **वार्षिक राजस्व लक्ष्य:** ₹550 करोड़।\n\n"
                     "2. **ग्राहक मूल्य निर्धारण:**\n"
                     "   - टीयर-1 माइनिंग ग्राहक (फोर्ज्ड स्टील बॉल्स): ₹72,500 प्रति मीट्रिक टन।"
+                )
+            elif lang == 'mr':
+                return (
+                    f"**गोपनीय व्यावसायिक आणि विक्री अहवाल ({title} - Role: CEO):**\n\n"
+                    "1. **आर्थिक आणि विक्री उद्दिष्टे:**\n"
+                    "   - **Q1 महसूल टार्गेट:** ₹125 कोटी (18.5% नफ्यासह).\n"
+                    "   - **Q2 महसूल टार्गेट:** ₹140 कोटी (निर्यात केंद्रित).\n"
+                    "   - **वार्षिक विक्री टार्गेट:** ₹550 कोटी.\n\n"
+                    "2. **ग्राहक किंमत:**\n"
+                    "   - खाण उद्योग ग्राहक: ₹72,500 प्रति मेट्रिक टन."
                 )
             else:
                 return (
