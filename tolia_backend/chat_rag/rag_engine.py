@@ -585,8 +585,6 @@ class LocalRAGEngine:
         if is_ollama_alive(settings.OLLAMA_BASE_URL):
             try:
                 active_model = _get_active_ollama_model()
-                if target_lang == 'hi':
-                    system_prompt = (
                 compact_context = "\n\n".join([f"Document: {c.document.title}\nContent: {c.text}" for c in top_chunks[:2]])
                 if target_lang == 'hi':
                     prompt = f"आप Tolia AI हैं, स्टील प्लांट फैक्ट्री सहायक। नीचे दिए गए संदर्भ (Context) के आधार पर प्रश्न का सटीक और संक्षिप्त उत्तर दें:\n\nसंदर्भ:\n{compact_context}\n\nप्रश्न: {user_query}\n\nसटीक उत्तर:"
