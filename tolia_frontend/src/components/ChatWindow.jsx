@@ -158,16 +158,20 @@ export default function ChatWindow({ activeRole }) {
       setIsListening(true);
       setLiveTranscript('Listening (100% On-Premise VEXYL STT)... Speak now...');
 
-      // 100% Local Microphone Stream with hardware echo cancellation
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: { 
-          echoCancellation: true, 
-          noiseSuppression: true, 
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 16000
-        } 
-      });
+      // 100% Local Microphone Stream with robust audio constraint fallback
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { 
+            echoCancellation: true, 
+            noiseSuppression: true, 
+            autoGainControl: true 
+          } 
+        });
+      } catch (cErr) {
+        console.warn("Hardware constraints not supported, falling back to basic audio stream:", cErr);
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
 
