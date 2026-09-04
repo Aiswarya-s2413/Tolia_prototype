@@ -23,10 +23,18 @@ def is_ollama_alive(url, timeout=0.015):
     except Exception:
         return False
 
+def _get_ollama_base_url():
+    """Detect active Ollama endpoint (Local Mac Tunnel 11435 first with qwen3.8, then local 11434)."""
+    if is_ollama_alive("http://127.0.0.1:11435", timeout=0.05):
+        return "http://127.0.0.1:11435"
+    default_url = getattr(settings, 'OLLAMA_BASE_URL', 'http://127.0.0.1:11434')
+    return default_url
+
 def _get_active_ollama_model():
     """Discover the best active model in Ollama (e.g., qwen3.8:latest, qwen3.8, qwen2.5:7b)."""
     try:
-        res = requests.get(f"{settings.OLLAMA_BASE_URL}/api/tags", timeout=0.2)
+        base_url = _get_ollama_base_url()
+        res = requests.get(f"{base_url}/api/tags", timeout=0.3)
         if res.status_code == 200:
             available = [m.get("name", "") for m in res.json().get("models", [])]
             preferred_order = [
@@ -34,6 +42,7 @@ def _get_active_ollama_model():
                 'qwen3.8:latest',
                 'qwen3.8',
                 'qwen2.5:7b',
+                'qwen2.5:1.5b',
                 'qwen2.5',
                 'llama3'
             ]
@@ -255,7 +264,8 @@ def get_allowed_departments_for_role(user_role):
 def get_embedding(text):
     """Call local Ollama server (nomic-embed-text) to generate vector embedding."""
     try:
-        url = f"{settings.OLLAMA_BASE_URL}/api/embed"
+        base_url = _get_ollama_base_url()
+        url = f"{base_url}/api/embed"
         payload = {"model": "nomic-embed-text", "input": text}
         res = requests.post(url, json=payload, timeout=3.0)
         if res.status_code == 200:
@@ -642,10 +652,11 @@ class LocalRAGEngine:
     @staticmethod
     def _call_ollama(query, context, lang, role):
         """Call local Ollama server with zero temperature and concise, simple word summarization."""
-        if not is_ollama_alive(settings.OLLAMA_BASE_URL):
+        base_url = _get_ollama_base_url()
+        if not is_ollama_alive(base_url):
             return None
         try:
-            url = f"{settings.OLLAMA_BASE_URL}/api/generate"
+            url = f"{base_url}/api/generate"
             if lang == 'hi':
                 system_prompt = (
                     f"You are Tolia AI, an expert Steel Plant Voice Assistant. User role: {role}.\n"
