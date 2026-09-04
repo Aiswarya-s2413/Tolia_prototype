@@ -157,7 +157,7 @@ export default function ChatWindow({ activeRole }) {
 
       speechDetectedRef.current = false;
       setIsListening(true);
-      setLiveTranscript('Listening (100% On-Premise VEXYL STT)... Speak now...');
+      setLiveTranscript('Listening... Speak now...');
 
       // 100% Local Microphone Stream with robust audio constraint fallback
       let stream;
@@ -277,7 +277,7 @@ export default function ChatWindow({ activeRole }) {
           formData.append('language', currentDetectedLang || 'auto');
 
           try {
-            setLiveTranscript('Transcribing with on-premise VEXYL STT...');
+            setLiveTranscript('Processing voice input...');
             setIsLoading(true);
             const res = await fetch('/api/voice/transcribe/', {
               method: 'POST',
@@ -298,7 +298,7 @@ export default function ChatWindow({ activeRole }) {
             }
           } catch (err) {
             console.error('STT transcription error:', err);
-            setLiveTranscript('Local STT error. Please try again.');
+            setLiveTranscript('Unable to recognize speech. Please try again.');
             setIsLoading(false);
             setTimeout(() => setLiveTranscript(''), 3000);
           }
@@ -786,8 +786,8 @@ export default function ChatWindow({ activeRole }) {
                   : speakingIndex !== null 
                   ? 'AI Speaking Response...'
                   : isLoading
-                  ? 'RAG Vector Index Search & Dynamic Language Analysis...'
-                  : 'Dynamic Voice AI (English • हिंदी • मराठी) — Tap & Speak'}
+                  ? 'Consulting plant standard operating procedures...'
+                  : 'Voice AI Assistant (English • हिंदी • मराठी) — Tap & Speak'}
               </span>
             </div>
           </div>
@@ -939,7 +939,7 @@ export default function ChatWindow({ activeRole }) {
                 <span>
                   {isListening
                     ? 'Microphone Active (Speak in English, Hindi, or Marathi)'
-                    : 'Transcribing Audio with Indic Voice Engine...'}
+                    : 'Processing Voice Input...'}
                 </span>
               </div>
               <p className="text-sm font-semibold text-slate-100 italic">
@@ -1106,7 +1106,7 @@ export default function ChatWindow({ activeRole }) {
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
                           <span className="relative inline-flex rounded-full h-2 w-2 bg-cyan-400"></span>
                         </span>
-                        <span>RAG Vector Index Search & Dynamic Multilingual Analysis in progress...</span>
+                        <span>Consulting plant standard operating procedures...</span>
                       </div>
                     )}
                   </div>

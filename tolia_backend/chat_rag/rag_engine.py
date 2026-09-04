@@ -24,18 +24,17 @@ def is_ollama_alive(url, timeout=0.015):
         return False
 
 def _get_active_ollama_model():
-    """Discover the best active model in Ollama (e.g., qwen2.5:0.5b for fast 1-vCPU CPU, qwen2.5:1.5b, qwen2.5:7b)."""
+    """Discover the best active model in Ollama (e.g., qwen3.8:latest, qwen3.8, qwen2.5:7b)."""
     try:
         res = requests.get(f"{settings.OLLAMA_BASE_URL}/api/tags", timeout=0.2)
         if res.status_code == 200:
             available = [m.get("name", "") for m in res.json().get("models", [])]
             preferred_order = [
-                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:0.5b'),
-                'qwen2.5:0.5b',
-                'qwen2.5:1.5b',
+                getattr(settings, 'OLLAMA_MODEL', 'qwen3.8:latest'),
+                'qwen3.8:latest',
+                'qwen3.8',
                 'qwen2.5:7b',
                 'qwen2.5',
-                'qwen3.8',
                 'llama3'
             ]
             for pref in preferred_order:
@@ -46,7 +45,7 @@ def _get_active_ollama_model():
                 return available[0]
     except Exception:
         pass
-    return getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:0.5b')
+    return getattr(settings, 'OLLAMA_MODEL', 'qwen3.8:latest')
 
 def detect_language(text):
     """
@@ -303,13 +302,13 @@ def normalize_voice_query(query_text):
     return normalized
 
 def score_chunk_relevance(query, chunk):
-    """Calculate relevance score between query and document chunk using term matching and title weighting."""
+    """Calculate relevance score between query and document chunk using term matching, technical codes, and title weighting."""
     norm_query = normalize_voice_query(query)
     query_words = set(re.findall(r'\w+', norm_query.lower()))
     
     # Stop words
-    stop_words = {'what', 'is', 'are', 'the', 'for', 'and', 'in', 'of', 'to', 'a', 'an', 'how', 'kya', 'hai', 'ka', 'ke', 'ki', 'ko', 'me'}
-    keywords = [w for w in query_words if w not in stop_words and len(w) > 2]
+    stop_words = {'what', 'is', 'are', 'the', 'for', 'and', 'in', 'of', 'to', 'a', 'an', 'how', 'tell', 'give', 'me', 'kya', 'hai', 'ka', 'ke', 'ki', 'ko', 'me', 'batao', 'sanga'}
+    keywords = [w for w in query_words if w not in stop_words and len(w) > 1]
     
     if not keywords:
         return 0.1
@@ -321,26 +320,32 @@ def score_chunk_relevance(query, chunk):
     score = 0.0
     for kw in keywords:
         if kw in doc_title_lower:
-            score += 6.0
+            score += 8.0
         if kw in category_lower:
-            score += 4.0
+            score += 5.0
         count = chunk_text_lower.count(kw)
-        score += count * 1.5
+        score += count * 2.0
+
+    # Technical codes & standards exact matching boost
+    technical_codes = ['sop-bf-01', 'sop-rm-04', 'sop-saf-02', 'sop-qc-09', 'fin-2026', 'astm', 'e18', 'hrc', 'rockwell', 'iso vg 320', 'vg 320', '210 bar', '1450', '1550', '2.5 bar', 'valve b-4', 'snort valve', 'nitrogen', 'mud gun', '72,500', '125 crore', '550 crore']
+    for code in technical_codes:
+        if code in norm_query and code in chunk_text_lower:
+            score += 35.0
 
     # Specific steel plant synonym boost
     q_norm_lower = norm_query.lower()
-    if ('blast' in q_norm_lower or 'furnace' in q_norm_lower or 'फर्नेस' in query or 'ब्लास्ट' in query) and 'blast furnace' in doc_title_lower:
+    if ('blast' in q_norm_lower or 'furnace' in q_norm_lower or 'फर्नेस' in query or 'ब्लास्ट' in query or 'tuyere' in q_norm_lower or 'taphole' in q_norm_lower) and 'blast furnace' in doc_title_lower:
+        score += 25.0
+    if ('shutdown' in q_norm_lower or 'emergency' in q_norm_lower or 'आपातकालीन' in query or 'आपत्कालीन' in query or 'siren' in q_norm_lower) and 'emergency' in chunk_text_lower:
         score += 20.0
-    if ('shutdown' in q_norm_lower or 'emergency' in q_norm_lower or 'आपातकालीन' in query) and 'emergency' in chunk_text_lower:
-        score += 15.0
-    if ('rolling' in q_norm_lower or 'gearbox' in q_norm_lower or 'hydraulic' in q_norm_lower or 'रोलिंग' in query) and 'rolling mill' in doc_title_lower:
-        score += 20.0
-    if ('ppe' in q_norm_lower or 'safety' in q_norm_lower or 'helmet' in q_norm_lower or 'सुरक्षा' in query or 'safe' in q_norm_lower) and 'safety' in doc_title_lower:
-        score += 20.0
-    if ('hardness' in q_norm_lower or 'testing' in q_norm_lower or 'hrc' in q_norm_lower or 'rockwell' in q_norm_lower) and 'quality' in doc_title_lower:
-        score += 20.0
-    if ('sales' in q_norm_lower or 'revenue' in q_norm_lower or 'target' in q_norm_lower or 'बिक्री' in query) and 'sales' in doc_title_lower:
-        score += 20.0
+    if ('rolling' in q_norm_lower or 'gearbox' in q_norm_lower or 'hydraulic' in q_norm_lower or 'रोलिंग' in query or 'vibration' in q_norm_lower or 'lubricant' in q_norm_lower) and 'rolling mill' in doc_title_lower:
+        score += 25.0
+    if ('ppe' in q_norm_lower or 'safety' in q_norm_lower or 'helmet' in q_norm_lower or 'सुरक्षा' in query or 'goggles' in q_norm_lower or 'ear' in q_norm_lower or 'smoking' in q_norm_lower) and 'safety' in doc_title_lower:
+        score += 25.0
+    if ('hardness' in q_norm_lower or 'testing' in q_norm_lower or 'hrc' in q_norm_lower or 'rockwell' in q_norm_lower or 'हार्डनेस' in query or 'crack' in q_norm_lower or 'austenite' in q_norm_lower) and 'quality' in doc_title_lower:
+        score += 25.0
+    if ('sales' in q_norm_lower or 'revenue' in q_norm_lower or 'target' in q_norm_lower or 'pricing' in q_norm_lower or 'बिक्री' in query or 'विक्री' in query or 'profit' in q_norm_lower or 'crore' in q_norm_lower) and 'sales' in doc_title_lower:
+        score += 25.0
 
     return score
 
@@ -636,46 +641,48 @@ class LocalRAGEngine:
 
     @staticmethod
     def _call_ollama(query, context, lang, role):
-        """Call local Ollama server if running with strict factuality constraints."""
+        """Call local Ollama server with zero temperature and concise, simple word summarization."""
         if not is_ollama_alive(settings.OLLAMA_BASE_URL):
             return None
         try:
             url = f"{settings.OLLAMA_BASE_URL}/api/generate"
             if lang == 'hi':
                 system_prompt = (
-                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                    f"User role: {role}. "
-                    "CRITICAL INSTRUCTIONS:\n"
-                    "1. Answer strictly and accurately using ONLY the facts and data given in the DOCUMENT CONTEXT below.\n"
-                    "2. Do not invent, assume, or fabricate any numbers, procedures, or safety limits not in the context.\n"
-                    "3. If the context does not contain the answer, state clearly in Hindi that the information is not present in the plant documentation.\n"
-                    "4. Answer in clear, helpful, and natural HINDI."
+                    f"You are Tolia AI, an expert Steel Plant Voice Assistant. User role: {role}.\n"
+                    "CRITICAL ACCURACY & SIMPLICITY RULES:\n"
+                    "1. Answer ONLY using facts from the DOCUMENT CONTEXT below. Never invent or guess facts.\n"
+                    "2. SUMMARIZE IN VERY SIMPLE WORDS: Keep sentences short, plain, and easy to understand for factory operators.\n"
+                    "3. Format with clean bullet points. Highlight critical values (temperatures, pressure, valve names, PPE) in **bold**.\n"
+                    "4. If the context does not contain the answer, say: 'यह जानकारी संयंत्र के SOPs में उपलब्ध नहीं है।'\n"
+                    "5. Respond in clear, natural HINDI."
                 )
             elif lang == 'mr':
                 system_prompt = (
-                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                    f"User role: {role}. "
-                    "CRITICAL INSTRUCTIONS:\n"
-                    "1. Answer strictly and accurately using ONLY the facts and data given in the DOCUMENT CONTEXT below.\n"
-                    "2. Do not invent, assume, or fabricate any numbers, procedures, or safety limits not in the context.\n"
-                    "3. If the context does not contain the answer, state clearly in Marathi that the information is not present in the plant documentation.\n"
-                    "4. Answer in clear, helpful, and natural MARATHI."
+                    f"You are Tolia AI, an expert Steel Plant Voice Assistant. User role: {role}.\n"
+                    "CRITICAL ACCURACY & SIMPLICITY RULES:\n"
+                    "1. Answer ONLY using facts from the DOCUMENT CONTEXT below. Never invent or guess facts.\n"
+                    "2. SUMMARIZE IN VERY SIMPLE WORDS: Keep sentences short, plain, and easy to understand for factory operators.\n"
+                    "3. Format with clean bullet points. Highlight critical values (temperatures, pressure, valve names, PPE) in **bold**.\n"
+                    "4. If the context does not contain the answer, say: 'ही माहिती कारखान्याच्या SOPs मध्ये उपलब्ध नाही.'\n"
+                    "5. Respond in clear, natural MARATHI."
                 )
             else:
                 system_prompt = (
-                    f"You are Tolia AI, an authoritative, highly accurate Factory Assistant for steel plant operations. "
-                    f"User role: {role}. "
-                    "CRITICAL INSTRUCTIONS:\n"
-                    "1. Answer strictly and accurately using ONLY the facts and data given in the DOCUMENT CONTEXT below.\n"
-                    "2. Do not invent, assume, or fabricate any numbers, procedures, or safety limits not in the context.\n"
-                    "3. If the context does not contain the answer, state clearly in English that the information is not present in the plant documentation.\n"
-                    "4. Answer in clear, direct, professional ENGLISH with structured points."
+                    f"You are Tolia AI, an expert Steel Plant Voice Assistant. User role: {role}.\n"
+                    "CRITICAL ACCURACY & SIMPLICITY RULES:\n"
+                    "1. Answer ONLY using facts from the DOCUMENT CONTEXT below. Never invent or guess facts.\n"
+                    "2. SUMMARIZE IN VERY SIMPLE WORDS: Keep sentences short, plain, and easy to understand for factory operators.\n"
+                    "3. Format with clean bullet points. Highlight critical values (temperatures, pressure, valve names, PPE) in **bold**.\n"
+                    "4. If the context does not contain the answer, say: 'This information is not specified in the plant SOPs.'\n"
+                    "5. Respond in clear, concise, direct ENGLISH."
                 )
                 
-            prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context}\n\nUSER QUESTION:\n{query}\n\nANSWER:"
+            prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context}\n\nUSER QUESTION:\n{query}\n\nCONCISE & SIMPLE ANSWER:"
             
             models_to_try = [
-                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:7b'),
+                getattr(settings, 'OLLAMA_MODEL', 'qwen3.8:latest'),
+                'qwen3.8:latest',
+                'qwen3.8',
                 'qwen2.5:7b',
                 'qwen2.5',
                 'llama3'
@@ -691,11 +698,12 @@ class LocalRAGEngine:
                         "prompt": prompt,
                         "stream": False,
                         "options": {
-                            "temperature": 0.1,
-                            "max_tokens": 500
+                            "temperature": 0.0,
+                            "top_p": 0.9,
+                            "max_tokens": 400
                         }
                     }
-                    res = requests.post(url, json=payload, timeout=(1.5, 4.0))
+                    res = requests.post(url, json=payload, timeout=(1.5, 6.0))
                     if res.status_code == 200:
                         data = res.json()
                         response_text = data.get("response", "").strip()
