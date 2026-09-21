@@ -226,7 +226,7 @@ export default function ChatWindow({ activeRole }) {
                 silenceStart = now;
               } else if (now - silenceStart >= 850) {
                 // 850ms natural pause detected
-                console.log("[VAD] Voice pause detected, submitting to VEXYL STT...");
+                console.log("[VAD] Voice pause detected, submitting to Whisper STT...");
                 silenceStart = 0;
                 stopMediaRecording();
                 return;
@@ -319,6 +319,127 @@ export default function ChatWindow({ activeRole }) {
     }
   };
 
+  // Web Speech Recognition reference
+  const speechRecognitionRef = useRef(null);
+
+  // Preload speech synthesis voices
+  const [availableVoices, setAvailableVoices] = useState([]);
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      const updateVoices = () => {
+        const v = window.speechSynthesis.getVoices();
+        if (v && v.length > 0) setAvailableVoices(v);
+      };
+      updateVoices();
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+  }, []);
+
+  // Pick top-tier human neural voice for natural speaking tone
+  const getBestVoice = (lang) => {
+    if (!('speechSynthesis' in window)) return null;
+    const voices = availableVoices.length > 0 ? availableVoices : (window.speechSynthesis.getVoices() || []);
+    if (!voices || voices.length === 0) return null;
+
+    const targetLang = lang === 'hi' ? 'hi' : lang === 'mr' ? 'mr' : 'en';
+
+    // Find voices matching target language
+    const matchedVoices = voices.filter(v => {
+      const vLang = (v.lang || '').toLowerCase().replace('_', '-');
+      if (targetLang === 'hi') return vLang.startsWith('hi');
+      if (targetLang === 'mr') return vLang.startsWith('mr') || vLang.startsWith('hi');
+      return vLang.startsWith('en');
+    });
+
+    const candidates = matchedVoices.length > 0 ? matchedVoices : voices;
+
+    // Prioritize natural, fluent human neural voices
+    const qualityKeywords = ['natural', 'google', 'neural', 'premium', 'enhanced', 'samantha', 'lekha', 'karen', 'siri', 'aria', 'guy', 'jenny'];
+    for (const kw of qualityKeywords) {
+      const found = candidates.find(v => (v.name || '').toLowerCase().includes(kw));
+      if (found) return found;
+    }
+
+    return candidates.find(v => v.default) || candidates[0] || null;
+  };
+
+  // Google Assistant-Grade Real-Time Speech Recognition (0ms delay)
+  const startSpeechRecognition = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      try {
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = currentDetectedLang === 'hi' ? 'hi-IN' : currentDetectedLang === 'mr' ? 'mr-IN' : 'en-US';
+        speechRecognitionRef.current = recognition;
+
+        let finalTranscript = '';
+
+        recognition.onstart = () => {
+          setIsListening(true);
+          speechDetectedRef.current = false;
+          setLiveTranscript('Listening... Speak now...');
+        };
+
+        recognition.onresult = (event) => {
+          let interimTranscript = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript;
+            } else {
+              interimTranscript += event.results[i][0].transcript;
+            }
+          }
+          const currentText = (finalTranscript + ' ' + interimTranscript).trim();
+          if (currentText) {
+            speechDetectedRef.current = true;
+            setLiveTranscript(currentText);
+            setInputQuery(currentText);
+          }
+        };
+
+        recognition.onerror = (event) => {
+          console.warn("Speech recognition notice:", event.error);
+          if (event.error !== 'no-speech' && event.error !== 'aborted') {
+            stopSpeechRecognition();
+            startMediaRecording();
+          } else {
+            stopSpeechRecognition();
+          }
+        };
+
+        recognition.onend = () => {
+          setIsListening(false);
+          speechRecognitionRef.current = null;
+          const queryToSubmit = finalTranscript.trim();
+          if (queryToSubmit) {
+            setLiveTranscript('');
+            handleSendMessage(queryToSubmit, currentDetectedLang);
+          } else {
+            setLiveTranscript('');
+          }
+        };
+
+        recognition.start();
+        return true;
+      } catch (err) {
+        console.warn("SpeechRecognition init notice, falling back to MediaRecorder:", err);
+      }
+    }
+    return false;
+  };
+
+  const stopSpeechRecognition = () => {
+    if (speechRecognitionRef.current) {
+      try {
+        speechRecognitionRef.current.abort();
+      } catch (e) {}
+      speechRecognitionRef.current = null;
+    }
+    setIsListening(false);
+  };
+
   const stopMediaRecording = () => {
     if (vadIntervalRef.current) clearInterval(vadIntervalRef.current);
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
@@ -345,25 +466,16 @@ export default function ChatWindow({ activeRole }) {
     }
 
     if (isListening) {
+      stopSpeechRecognition();
       stopMediaRecording();
     } else {
       stopVoice();
-      startMediaRecording();
+      const startedWebSpeech = startSpeechRecognition();
+      if (!startedWebSpeech) {
+        startMediaRecording();
+      }
     }
   };
-
-  // Preload speech synthesis voices
-  const [availableVoices, setAvailableVoices] = useState([]);
-  useEffect(() => {
-    if ('speechSynthesis' in window) {
-      const updateVoices = () => {
-        const v = window.speechSynthesis.getVoices();
-        if (v && v.length > 0) setAvailableVoices(v);
-      };
-      updateVoices();
-      window.speechSynthesis.onvoiceschanged = updateVoices;
-    }
-  }, []);
 
   // Pre-unlock audio permission on user interaction for smooth mobile & desktop playback
   const unlockAudioContext = () => {
@@ -387,8 +499,12 @@ export default function ChatWindow({ activeRole }) {
     } catch (e) {}
   };
 
+  const currentSourceNodeRef = useRef(null);
+
   // Stop all active voice audio and cancel streaming (Zero-Latency Barge-In)
   const stopVoice = () => {
+    stopSpeechRecognition();
+
     // 1. Send instant cancel frame over WebSocket to halt backend RAG/LLM immediately
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
@@ -402,7 +518,16 @@ export default function ChatWindow({ activeRole }) {
       abortControllerRef.current = null;
     }
 
-    // 3. Stop and clear active HTML5 audio
+    // 3. Stop Web Audio Buffer source
+    if (currentSourceNodeRef.current) {
+      try {
+        currentSourceNodeRef.current.stop();
+        currentSourceNodeRef.current.disconnect();
+      } catch (e) {}
+      currentSourceNodeRef.current = null;
+    }
+
+    // 4. Stop and clear active HTML5 audio
     if (currentAudioRef.current) {
       try {
         currentAudioRef.current.pause();
@@ -414,23 +539,12 @@ export default function ChatWindow({ activeRole }) {
       currentAudioRef.current = null;
     }
 
-    // 4. Clear sentence audio queue
-    audioQueueRef.current.forEach((item) => {
-      if (item.audio) {
-        try {
-          item.audio.pause();
-          item.audio.onended = null;
-          item.audio.onerror = null;
-          item.audio.onplay = null;
-          item.audio.src = '';
-        } catch (e) {}
-      }
-    });
+    // 5. Clear sentence audio queue
     audioQueueRef.current = [];
     isPlayingQueueRef.current = false;
     hasQueuedAudioRef.current = false;
 
-    // 5. Cancel Web Speech
+    // 6. Cancel Web Speech
     if ('speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
@@ -442,8 +556,159 @@ export default function ChatWindow({ activeRole }) {
     setActiveAudioEngine(null);
   };
 
-  // Play next audio sentence in queue (Sequential Gapless Voice Pipelining)
-  const playNextInQueue = (msgIndex) => {
+  // High-Performance Audio Playback Engine (Web Audio API -> HTML5 Audio -> Web Speech API)
+  const playAudioItem = async (text, targetIdx, langParam, onEnd) => {
+    if (!text || !text.trim()) {
+      if (onEnd) onEnd();
+      return;
+    }
+
+    // Level 1: Web Audio API (direct audio hardware output)
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!window._sharedAudioCtx && AudioCtx) {
+        window._sharedAudioCtx = new AudioCtx();
+      }
+      const ctx = window._sharedAudioCtx;
+      if (ctx) {
+        if (ctx.state === 'suspended') {
+          await ctx.resume();
+        }
+
+        const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langParam || 'auto')}`;
+        const res = await fetch(audioUrl);
+        if (res.ok) {
+          const arrayBuffer = await res.arrayBuffer();
+          if (arrayBuffer.byteLength > 100) {
+            const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+            const source = ctx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(ctx.destination);
+            currentSourceNodeRef.current = source;
+
+            setActiveAudioEngine('webaudio');
+            setSpeakingIndex(targetIdx);
+            setIsVoicePaused(false);
+
+            source.onended = () => {
+              currentSourceNodeRef.current = null;
+              if (onEnd) onEnd();
+            };
+
+            source.start(0);
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Web Audio API stream notice, trying HTML5 Audio:", err);
+    }
+
+    // Level 2: HTML5 Audio Element Fallback
+    try {
+      const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langParam || 'auto')}`;
+      const audio = new Audio(audioUrl);
+      audio.volume = 1.0;
+      currentAudioRef.current = audio;
+
+      audio.onplay = () => {
+        setActiveAudioEngine('html5');
+        setSpeakingIndex(targetIdx);
+        setIsVoicePaused(false);
+      };
+
+      audio.onended = () => {
+        currentAudioRef.current = null;
+        if (onEnd) onEnd();
+      };
+
+      audio.onerror = () => {
+        playWithWebSpeech(text, targetIdx, langParam, onEnd);
+      };
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          if (err.name !== 'AbortError') {
+            playWithWebSpeech(text, targetIdx, langParam, onEnd);
+          }
+        });
+      }
+      return;
+    } catch (err) {
+      console.warn("HTML5 audio playback error, falling back to Web Speech:", err);
+    }
+
+    // Level 3: Browser Web Speech API with High-End Neural Voice
+    playWithWebSpeech(text, targetIdx, langParam, onEnd);
+  };
+
+  const playWithWebSpeech = (cleanText, targetIdx, langParam, onEnd) => {
+    if ('speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        const langCode = langParam === 'hi' ? 'hi-IN' : langParam === 'mr' ? 'mr-IN' : 'en-US';
+        utterance.lang = langCode;
+        utterance.rate = 0.93; // Calibrated for natural human conversation speed
+        utterance.pitch = 1.0;
+
+        const bestVoice = getBestVoice(langParam);
+        if (bestVoice) {
+          utterance.voice = bestVoice;
+        }
+
+        utterance.onstart = () => {
+          setActiveAudioEngine('speechSynthesis');
+          setSpeakingIndex(targetIdx);
+          setIsVoicePaused(false);
+        };
+        utterance.onend = () => {
+          if (onEnd) onEnd();
+          else stopVoice();
+        };
+        utterance.onerror = () => {
+          if (onEnd) onEnd();
+          else stopVoice();
+        };
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        if (onEnd) onEnd();
+        else stopVoice();
+      }
+    } else {
+      if (onEnd) onEnd();
+      else stopVoice();
+    }
+  };
+
+  // Pre-fetch and pre-decode sentence audio buffer in background (0ms gap between sentences)
+  const prefetchAudioBuffer = async (item) => {
+    if (item.audioBuffer || item.fetchPromise) return item.fetchPromise;
+    item.fetchPromise = (async () => {
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!window._sharedAudioCtx && AudioCtx) {
+          window._sharedAudioCtx = new AudioCtx();
+        }
+        const ctx = window._sharedAudioCtx;
+        const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(item.text)}&lang=${encodeURIComponent(item.lang || 'auto')}`;
+        const res = await fetch(audioUrl);
+        if (res.ok) {
+          const arrayBuffer = await res.arrayBuffer();
+          if (arrayBuffer.byteLength > 100 && ctx) {
+            item.audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+          }
+        }
+      } catch (e) {
+        console.warn("Prefetch audio error:", e);
+      }
+    })();
+    return item.fetchPromise;
+  };
+
+  // Play next audio sentence in queue (Sequential Gapless Zero-Delay Voice Pipelining)
+  const playNextInQueue = async (msgIndex) => {
     const targetIdx = msgIndex !== undefined && msgIndex !== null ? msgIndex : getLatestBotMessageIndex();
 
     if (audioQueueRef.current.length === 0) {
@@ -453,11 +718,6 @@ export default function ChatWindow({ activeRole }) {
       return;
     }
 
-    // Ensure zero overlap with any lingering speech synthesis
-    if ('speechSynthesis' in window) {
-      try { window.speechSynthesis.cancel(); } catch (e) {}
-    }
-
     isPlayingQueueRef.current = true;
     const nextItem = audioQueueRef.current.shift();
     if (!nextItem || !nextItem.text) {
@@ -465,38 +725,51 @@ export default function ChatWindow({ activeRole }) {
       return;
     }
 
-    // Lazy load exactly ONE audio sentence at a time to keep server CPU low (< 20%)
-    const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(nextItem.text)}&lang=${encodeURIComponent(nextItem.lang || 'auto')}`;
-    const audio = new Audio(audioUrl);
-    currentAudioRef.current = audio;
-
-    audio.onplay = () => {
-      setActiveAudioEngine('html5');
-      setSpeakingIndex(targetIdx);
-      setIsVoicePaused(false);
-    };
-
-    audio.onended = () => {
-      playNextInQueue(targetIdx);
-    };
-
-    audio.onerror = (e) => {
-      console.warn("HTML5 audio playback error on chunk:", e);
-      playNextInQueue(targetIdx);
-    };
-
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((err) => {
-        if (err.name !== 'AbortError') {
-          console.warn("Audio play rejected, recovering queue:", err);
-          playNextInQueue(targetIdx);
-        }
-      });
+    // Ensure audio buffer is fetched/decoded
+    if (!nextItem.audioBuffer && nextItem.fetchPromise) {
+      await nextItem.fetchPromise;
     }
+
+    // If Web Audio buffer is ready -> PLAY INSTANTLY WITH ZERO GAP (0.00ms latency)
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!window._sharedAudioCtx && AudioCtx) {
+      window._sharedAudioCtx = new AudioCtx();
+    }
+    const ctx = window._sharedAudioCtx;
+    if (ctx && ctx.state === 'suspended') {
+      try { await ctx.resume(); } catch (e) {}
+    }
+
+    if (ctx && nextItem.audioBuffer) {
+      try {
+        const source = ctx.createBufferSource();
+        source.buffer = nextItem.audioBuffer;
+        source.connect(ctx.destination);
+        currentSourceNodeRef.current = source;
+
+        setActiveAudioEngine('webaudio');
+        setSpeakingIndex(targetIdx);
+        setIsVoicePaused(false);
+
+        source.onended = () => {
+          currentSourceNodeRef.current = null;
+          playNextInQueue(targetIdx);
+        };
+
+        source.start(0);
+        return;
+      } catch (err) {
+        console.warn("Buffer playback notice, falling back to direct play:", err);
+      }
+    }
+
+    // Fallback if buffer was not available
+    playAudioItem(nextItem.text, targetIdx, nextItem.lang || 'auto', () => {
+      playNextInQueue(targetIdx);
+    });
   };
 
-  // Queue sentence chunks for sub-second TTS playback
+  // Queue sentence chunks for sub-second TTS playback with instant background pre-buffering
   const queueSentenceForTTS = (sentenceText, msgIndex, targetLang) => {
     const cleanText = sentenceText
       .replace(/[*_#`~]/g, '')
@@ -505,12 +778,22 @@ export default function ChatWindow({ activeRole }) {
       .replace(/https?:\/\/\S+/g, '')
       .trim();
 
-    if (!cleanText || cleanText.length < 5) return;
+    if (!cleanText || cleanText.length < 3) return;
 
     const targetIdx = msgIndex !== undefined && msgIndex !== null ? msgIndex : getLatestBotMessageIndex();
     const langParam = targetLang || 'auto';
 
-    audioQueueRef.current.push({ text: cleanText, lang: langParam });
+    const queueItem = {
+      text: cleanText,
+      lang: langParam,
+      audioBuffer: null,
+      fetchPromise: null
+    };
+
+    // Immediately trigger background audio pre-buffering in parallel
+    prefetchAudioBuffer(queueItem);
+
+    audioQueueRef.current.push(queueItem);
 
     if (!isPlayingQueueRef.current) {
       playNextInQueue(targetIdx);
@@ -519,7 +802,10 @@ export default function ChatWindow({ activeRole }) {
 
   // Pause active voice audio
   const pauseVoice = () => {
-    if (activeAudioEngine === 'html5' && currentAudioRef.current) {
+    if (window._sharedAudioCtx && window._sharedAudioCtx.state === 'running') {
+      window._sharedAudioCtx.suspend();
+      setIsVoicePaused(true);
+    } else if (activeAudioEngine === 'html5' && currentAudioRef.current) {
       currentAudioRef.current.pause();
       setIsVoicePaused(true);
     } else if ('speechSynthesis' in window && window.speechSynthesis.speaking) {
@@ -530,7 +816,10 @@ export default function ChatWindow({ activeRole }) {
 
   // Resume paused voice audio
   const resumeVoice = () => {
-    if (activeAudioEngine === 'html5' && currentAudioRef.current) {
+    if (window._sharedAudioCtx && window._sharedAudioCtx.state === 'suspended') {
+      window._sharedAudioCtx.resume();
+      setIsVoicePaused(false);
+    } else if (activeAudioEngine === 'html5' && currentAudioRef.current) {
       currentAudioRef.current.play().catch((err) => {
         console.warn("Resume audio playback failed:", err);
       });
@@ -559,6 +848,7 @@ export default function ChatWindow({ activeRole }) {
   // Text to Speech (TTS) - For manual replay or full playback
   const speakText = (text, index, targetLang) => {
     stopVoice();
+    unlockAudioContext();
 
     const cleanText = text
       .replace(/[*_#`~]/g, '')
@@ -575,35 +865,9 @@ export default function ChatWindow({ activeRole }) {
     const targetIdx = index !== undefined && index !== null && index >= 0 ? index : getLatestBotMessageIndex();
     const langParam = targetLang || (messages[targetIdx]?.language) || 'auto';
 
-    // High-Speed Backend Voice (/api/voice/synthesize/)
-    const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(cleanText)}&lang=${encodeURIComponent(langParam)}`;
-    const audio = new Audio(audioUrl);
-    currentAudioRef.current = audio;
-
-    audio.onplay = () => {
-      setActiveAudioEngine('html5');
-      setSpeakingIndex(targetIdx);
-      setIsVoicePaused(false);
-    };
-
-    audio.onended = () => {
+    playAudioItem(cleanText, targetIdx, langParam, () => {
       stopVoice();
-    };
-
-    audio.onerror = () => {
-      console.warn("Backend audio error");
-      stopVoice();
-    };
-
-    const playPromise = audio.play();
-    if (playPromise !== undefined) {
-      playPromise.catch((err) => {
-        if (err.name !== 'AbortError') {
-          console.warn("Audio play rejected:", err);
-        }
-        stopVoice();
-      });
-    }
+    });
   };
 
   const copyToClipboard = (text, index) => {
@@ -1157,13 +1421,33 @@ export default function ChatWindow({ activeRole }) {
                     </div>
                   )}
 
-                  {/* Message Footer (Timestamp & Copy Only) */}
+                  {/* Message Footer (Timestamp, Listen, Copy) */}
                   {msg.text && (
                     <div className="mt-3 pt-2.5 flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-700/30">
                       <span>{msg.timestamp}</span>
 
                       {!isUser && (
                         <div className="flex items-center gap-2">
+                          {/* Listen Button */}
+                          <button
+                            onClick={() => {
+                              if (isSpeaking) {
+                                stopVoice();
+                              } else {
+                                speakText(msg.text, idx, msg.language);
+                              }
+                            }}
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-all text-xs font-semibold ${
+                              isSpeaking
+                                ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-400/60 shadow-lg shadow-cyan-500/20 animate-pulse'
+                                : 'bg-slate-800/90 hover:bg-slate-700 text-cyan-400 hover:text-cyan-200 border border-slate-700/80 shadow-sm'
+                            }`}
+                            title={isSpeaking ? "Stop Voice" : "Listen to this answer"}
+                          >
+                            <Volume2 className={`w-3.5 h-3.5 ${isSpeaking ? 'text-cyan-300' : 'text-cyan-400'}`} />
+                            <span>{isSpeaking ? 'Speaking...' : 'Listen'}</span>
+                          </button>
+
                           {/* Copy */}
                           <button
                             onClick={() => copyToClipboard(msg.text, idx)}
