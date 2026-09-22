@@ -709,9 +709,10 @@ class LocalRAGEngine:
                     "2. Answer ONLY using facts from the DOCUMENT CONTEXT below. Never invent or guess facts.\n"
                     "3. SUMMARIZE IN VERY SIMPLE WORDS: Keep sentences short, conversational, and easy to understand.\n"
                     "4. Format with clean bullet points. Highlight critical values (temperatures, pressure, valve names, PPE) in **bold**.\n"
-                    "5. Example style: 'Blast Furnace emergency shutdown ke liye main steps ye hain: 1. Agar gas pressure 2.5 bar se jyada ho, toh turant **Main Control Valve (Valve B-4)** band karein...'\n"
-                    "6. If the context does not contain the answer, say: 'Ye jaankari plant ke SOPs mein available nahi hai.'\n"
-                    "7. Respond in clear, natural HINGLISH."
+                    "5. Do NOT include any language tags or bracketed labels like '(Hinglish)', '(English)', or '(Hindi)' in headings or text.\n"
+                    "6. Example style: 'Blast Furnace emergency shutdown ke liye main steps ye hain: 1. Agar gas pressure 2.5 bar se jyada ho, toh turant **Main Control Valve (Valve B-4)** band karein...'\n"
+                    "7. If the context does not contain the answer, say: 'Ye jaankari plant ke SOPs mein available nahi hai.'\n"
+                    "8. Respond in clear, natural HINGLISH."
                 )
             elif lang == 'hi':
                 system_prompt = (
@@ -802,7 +803,7 @@ class LocalRAGEngine:
         if "blast" in q_lower or "furnace" in q_lower or "emergency" in q_lower or "shutdown" in q_lower or "ब्लास्ट" in query or "तापमान" in query:
             if lang in ['mixed', 'hinglish']:
                 return (
-                    "**Blast Furnace Emergency Shutdown Steps (Hinglish):**\n\n"
+                    "**Blast Furnace Emergency Shutdown Steps:**\n\n"
                     "1. Agar gas pressure 2.5 bar se jyada ho, toh turant **Main Control Valve (Valve B-4)** band karein.\n"
                     "2. Control Console 1 par laga **Red Emergency Stop Button** press karein.\n"
                     "3. Gas backdraft rokne ke liye Snort valve open hoga aur **Nitrogen purge** start hoga.\n"
@@ -841,7 +842,7 @@ class LocalRAGEngine:
         if "rolling" in q_lower or "gearbox" in q_lower or "hydraulic" in q_lower or "रोलिंग" in query or "vibration" in q_lower:
             if lang in ['mixed', 'hinglish']:
                 return (
-                    "**Rolling Mill Maintenance Guidelines (Hinglish):**\n\n"
+                    "**Rolling Mill Maintenance Guidelines:**\n\n"
                     "1. Gearbox oil har 100 operating hours par check karein. Sirf **ISO VG 320 synthetic oil** use karein.\n"
                     "2. Hydraulic clamping pressure **210 bar (±5 bar)** maintain karein.\n"
                     "3. Maximum allowable vibration **4.5 mm/s RMS** hai. Agar vibration 5.0 mm/s se upar jaye, toh line turant stop karein."
@@ -872,7 +873,7 @@ class LocalRAGEngine:
         if "ppe" in q_lower or "safety" in q_lower or "helmet" in q_lower or "सुरक्षा" in query or "shoes" in q_lower or "पीपीई" in query:
             if lang in ['mixed', 'hinglish']:
                 return (
-                    "**Plant Safety & PPE Rules (Hinglish):**\n\n"
+                    "**Plant Safety & PPE Rules:**\n\n"
                     "1. Plant floor par certified **Hard Hat (Helmet)** aur **Steel-Toe Safety Shoes** pehanna compulsory hai.\n"
                     "2. High-Visibility Reflective Vest aur Safety Goggles pehnein.\n"
                     "3. Rolling Mill area mein **28dB+ ear plugs** use karein.\n"
@@ -907,7 +908,7 @@ class LocalRAGEngine:
         if "hardness" in q_lower or "testing" in q_lower or "hrc" in q_lower or "rockwell" in q_lower or "हार्डनेस" in query or "गुणवत्ता" in query:
             if lang in ['mixed', 'hinglish']:
                 return (
-                    "**Steel Quality & Hardness Standards (Hinglish):**\n\n"
+                    "**Steel Quality & Hardness Standards:**\n\n"
                     "1. Grinding balls ki surface hardness **58 se 65 HRC** honi chahiye.\n"
                     "2. Core (center) hardness minimum **55 HRC** mandatory hai.\n"
                     "3. Testing Standard: **ASTM E18** Rockwell Hardness scale.\n"
@@ -942,7 +943,7 @@ class LocalRAGEngine:
         if "sales" in q_lower or "revenue" in q_lower or "target" in q_lower or "pricing" in q_lower or "बिक्री" in query or "विक्री" in query:
             if lang in ['mixed', 'hinglish']:
                 return (
-                    f"**Confidential Commercial Sales & Revenue Report ({title} - Role: CEO - Hinglish):**\n\n"
+                    f"**Confidential Commercial Sales & Revenue Report ({title} - Role: CEO):**\n\n"
                     "1. **Revenue & Target Breakdown:**\n"
                     "   - **Q1 Revenue Target:** ₹125 Crore (18.5% operating profit margin ke saath).\n"
                     "   - **Q2 Revenue Target:** ₹140 Crore (export shipments par focus).\n"
