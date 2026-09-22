@@ -341,23 +341,26 @@ export default function ChatWindow({ activeRole }) {
     const voices = availableVoices.length > 0 ? availableVoices : (window.speechSynthesis.getVoices() || []);
     if (!voices || voices.length === 0) return null;
 
-    const targetLang = lang === 'hi' ? 'hi' : lang === 'mr' ? 'mr' : (lang === 'mixed' || lang === 'hinglish') ? 'mixed' : 'en';
+    const isHinglish = (lang === 'mixed' || lang === 'hinglish');
+    const targetLang = lang === 'hi' ? 'hi' : lang === 'mr' ? 'mr' : isHinglish ? 'hi' : 'en';
 
-    // Find voices matching target language
+    // Find voices matching target language - for Hinglish/mixed ALWAYS prioritize Hindi & Indian voices
     const matchedVoices = voices.filter(v => {
       const vLang = (v.lang || '').toLowerCase().replace('_', '-');
-      if (targetLang === 'hi') return vLang.startsWith('hi');
+      if (targetLang === 'hi') return vLang.startsWith('hi') || vLang.startsWith('en-in');
       if (targetLang === 'mr') return vLang.startsWith('mr') || vLang.startsWith('hi');
-      if (targetLang === 'mixed') return vLang.startsWith('hi') || vLang.startsWith('en-in') || vLang.startsWith('en');
       return vLang.startsWith('en');
     });
 
     const candidates = matchedVoices.length > 0 ? matchedVoices : voices;
 
-    // Prioritize natural, fluent human neural voices
-    const qualityKeywords = ['natural', 'google', 'neural', 'premium', 'enhanced', 'samantha', 'lekha', 'karen', 'siri', 'aria', 'guy', 'jenny'];
+    // Prioritize natural, fluent Indian/Hindi human neural voices
+    const qualityKeywords = isHinglish || targetLang === 'hi'
+      ? ['google हिन्दी', 'hindi', 'lekha', 'neerja', 'swara', 'madhav', 'india', 'natural', 'google', 'neural']
+      : ['natural', 'google', 'neural', 'premium', 'enhanced', 'samantha', 'lekha', 'karen', 'siri', 'aria', 'guy', 'jenny'];
+
     for (const kw of qualityKeywords) {
-      const found = candidates.find(v => (v.name || '').toLowerCase().includes(kw));
+      const found = candidates.find(v => (v.name || '').toLowerCase().includes(kw) || (v.lang || '').toLowerCase().includes(kw));
       if (found) return found;
     }
 
@@ -650,7 +653,7 @@ export default function ChatWindow({ activeRole }) {
       try {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(cleanText);
-        const langCode = langParam === 'hi' ? 'hi-IN' : langParam === 'mr' ? 'mr-IN' : (langParam === 'mixed' || langParam === 'hinglish') ? 'en-IN' : 'en-US';
+        const langCode = (langParam === 'hi' || langParam === 'mixed' || langParam === 'hinglish') ? 'hi-IN' : langParam === 'mr' ? 'mr-IN' : 'en-US';
         utterance.lang = langCode;
         utterance.rate = 0.93; // Calibrated for natural human conversation speed
         utterance.pitch = 1.0;

@@ -705,14 +705,13 @@ class LocalRAGEngine:
                 system_prompt = (
                     f"You are Tolia AI, an expert Steel Plant Voice Assistant. User role: {role}.\n"
                     "CRITICAL ACCURACY & LANGUAGE RULES:\n"
-                    "1. The user asked in MIXED LANGUAGE (Hinglish / Hindi + English). You MUST respond in natural, conversational HINGLISH (a fluent mix of Hindi and English as commonly spoken in Indian steel plants and factories).\n"
+                    "1. The user asked in MIXED LANGUAGE (Hinglish / Hindi + English). You MUST respond in clear HINGLISH using English for technical terms (names, machines, SOP, values, temperatures) and Devanagari Hindi for conversational verbs/connectors (e.g., 'Gearbox oil हर 100 operating hours पर check करें। सिर्फ **ISO VG 320 synthetic oil** use करें।').\n"
                     "2. Answer ONLY using facts from the DOCUMENT CONTEXT below. Never invent or guess facts.\n"
                     "3. SUMMARIZE IN VERY SIMPLE WORDS: Keep sentences short, conversational, and easy to understand.\n"
                     "4. Format with clean bullet points. Highlight critical values (temperatures, pressure, valve names, PPE) in **bold**.\n"
                     "5. Do NOT include any language tags or bracketed labels like '(Hinglish)', '(English)', or '(Hindi)' in headings or text.\n"
-                    "6. Example style: 'Blast Furnace emergency shutdown ke liye main steps ye hain: 1. Agar gas pressure 2.5 bar se jyada ho, toh turant **Main Control Valve (Valve B-4)** band karein...'\n"
-                    "7. If the context does not contain the answer, say: 'Ye jaankari plant ke SOPs mein available nahi hai.'\n"
-                    "8. Respond in clear, natural HINGLISH."
+                    "6. If the context does not contain the answer, say: 'यह जानकारी संयंत्र के SOPs में उपलब्ध नहीं है।'\n"
+                    "7. Respond in clear, natural HINGLISH with Devanagari Hindi connectors and English technical terms."
                 )
             elif lang == 'hi':
                 system_prompt = (
@@ -804,11 +803,11 @@ class LocalRAGEngine:
             if lang in ['mixed', 'hinglish']:
                 return (
                     "**Blast Furnace Emergency Shutdown Steps:**\n\n"
-                    "1. Agar gas pressure 2.5 bar se jyada ho, toh turant **Main Control Valve (Valve B-4)** band karein.\n"
-                    "2. Control Console 1 par laga **Red Emergency Stop Button** press karein.\n"
-                    "3. Gas backdraft rokne ke liye Snort valve open hoga aur **Nitrogen purge** start hoga.\n"
-                    "4. 3 siren blasts bajayein aur sabhi staff ko **Assembly Point 2** par evacuate karein.\n"
-                    "5. Operating temperature **1450°C se 1550°C** rehta hai. Heat suit aur face shield pehanna compulsory hai."
+                    "1. अगर gas pressure 2.5 bar से ज्यादा हो, तो तुरंत **Main Control Valve (Valve B-4)** बंद करें।\n"
+                    "2. Control Console 1 पर लगा **Red Emergency Stop Button** press करें।\n"
+                    "3. Gas backdraft रोकने के लिए Snort valve open होगा और **Nitrogen purge** start होगा।\n"
+                    "4. 3 siren blasts बजाएं और सभी staff को **Assembly Point 2** पर evacuate करें।\n"
+                    "5. Operating temperature **1450°C से 1550°C** रहता है। Heat suit और face shield पहनना compulsory है।"
                 )
             elif lang == 'hi':
                 return (
@@ -843,9 +842,9 @@ class LocalRAGEngine:
             if lang in ['mixed', 'hinglish']:
                 return (
                     "**Rolling Mill Maintenance Guidelines:**\n\n"
-                    "1. Gearbox oil har 100 operating hours par check karein. Sirf **ISO VG 320 synthetic oil** use karein.\n"
-                    "2. Hydraulic clamping pressure **210 bar (±5 bar)** maintain karein.\n"
-                    "3. Maximum allowable vibration **4.5 mm/s RMS** hai. Agar vibration 5.0 mm/s se upar jaye, toh line turant stop karein."
+                    "1. Gearbox oil हर 100 operating hours पर check करें। सिर्फ **ISO VG 320 synthetic oil** use करें।\n"
+                    "2. Hydraulic clamping pressure **210 bar (±5 bar)** maintain करें।\n"
+                    "3. Maximum allowable vibration **4.5 mm/s RMS** है। अगर vibration 5.0 mm/s से ऊपर जाए, तो line तुरंत stop करें।"
                 )
             elif lang == 'hi':
                 return (
@@ -874,10 +873,10 @@ class LocalRAGEngine:
             if lang in ['mixed', 'hinglish']:
                 return (
                     "**Plant Safety & PPE Rules:**\n\n"
-                    "1. Plant floor par certified **Hard Hat (Helmet)** aur **Steel-Toe Safety Shoes** pehanna compulsory hai.\n"
-                    "2. High-Visibility Reflective Vest aur Safety Goggles pehnein.\n"
-                    "3. Rolling Mill area mein **28dB+ ear plugs** use karein.\n"
-                    "4. Pure plant premises mein smoking strictly prohibited hai."
+                    "1. Plant floor पर certified **Hard Hat (Helmet)** और **Steel-Toe Safety Shoes** पहनना compulsory है।\n"
+                    "2. High-Visibility Reflective Vest और Safety Goggles पहनें।\n"
+                    "3. Rolling Mill area में **28dB+ ear plugs** use करें।\n"
+                    "4. पूरे plant premises में smoking strictly prohibited है।"
                 )
             elif lang == 'hi':
                 return (
@@ -909,10 +908,10 @@ class LocalRAGEngine:
             if lang in ['mixed', 'hinglish']:
                 return (
                     "**Steel Quality & Hardness Standards:**\n\n"
-                    "1. Grinding balls ki surface hardness **58 se 65 HRC** honi chahiye.\n"
-                    "2. Core (center) hardness minimum **55 HRC** mandatory hai.\n"
-                    "3. Testing Standard: **ASTM E18** Rockwell Hardness scale.\n"
-                    "4. Surface defects: 0.2 mm se gehre cracks allowed nahi hain."
+                    "1. Grinding balls की surface hardness **58 से 65 HRC** होनी चाहिए।\n"
+                    "2. Core (center) hardness minimum **55 HRC** mandatory है।\n"
+                    "3. Testing Standard: **ASTM E18** Rockwell Hardness scale।\n"
+                    "4. Surface defects: 0.2 mm से गहरे cracks allowed नहीं हैं।"
                 )
             elif lang == 'hi':
                 return (
@@ -945,11 +944,11 @@ class LocalRAGEngine:
                 return (
                     f"**Confidential Commercial Sales & Revenue Report ({title} - Role: CEO):**\n\n"
                     "1. **Revenue & Target Breakdown:**\n"
-                    "   - **Q1 Revenue Target:** ₹125 Crore (18.5% operating profit margin ke saath).\n"
-                    "   - **Q2 Revenue Target:** ₹140 Crore (export shipments par focus).\n"
-                    "   - **Annual Revenue Target:** ₹550 Crore.\n\n"
+                    "   - **Q1 Revenue Target:** ₹125 Crore (18.5% operating profit margin के साथ)।\n"
+                    "   - **Q2 Revenue Target:** ₹140 Crore (export shipments पर focus)।\n"
+                    "   - **Annual Revenue Target:** ₹550 Crore।\n\n"
                     "2. **Customer Pricing:**\n"
-                    "   - Mining clients (Forged Steel Balls): ₹72,500 per metric ton."
+                    "   - Mining clients (Forged Steel Balls): ₹72,500 per metric ton।"
                 )
             elif lang == 'hi':
                 return (

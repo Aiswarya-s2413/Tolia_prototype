@@ -196,8 +196,8 @@ class PiperTTSService:
     @staticmethod
     def synthesize(text, lang='en'):
         try:
-            # If text has Devanagari script, use Hindi neural voice model
-            effective_lang = 'hi' if any('\u0900' <= char <= '\u097F' for char in text) else ('hi' if lang in ['hi', 'mr'] else 'en')
+            # If text has Devanagari script or is mixed/Hinglish, use Hindi neural voice model
+            effective_lang = 'hi' if (any('\u0900' <= char <= '\u097F' for char in text) or lang in ['hi', 'mr', 'mixed', 'hinglish']) else 'en'
             voice = PiperTTSService.get_voice(effective_lang)
             if voice is None:
                 return None
@@ -205,7 +205,7 @@ class PiperTTSService:
             try:
                 from piper import SynthesisConfig
                 # Natural, articulate conversational pace tuned to normal human speech
-                speed_scale = 1.10 if effective_lang in ['hi', 'mr'] else 1.08
+                speed_scale = 1.10 if effective_lang in ['hi', 'mr', 'mixed', 'hinglish'] else 1.08
                 syn_config = SynthesisConfig(
                     length_scale=speed_scale,  # Comfortable, natural human speaking speed
                     noise_scale=0.667,         # Clear, high-fidelity neural voice acoustics
@@ -273,7 +273,7 @@ class LocalTTSService:
             # 2. Universal Python gTTS Fallback
             try:
                 from gtts import gTTS
-                tts_lang = 'hi' if (active_lang in ['hi', 'mr'] or any('\u0900' <= char <= '\u097F' for char in clean_text)) else 'en'
+                tts_lang = 'hi' if (active_lang in ['hi', 'mr', 'mixed', 'hinglish'] or any('\u0900' <= char <= '\u097F' for char in clean_text)) else 'en'
                 tts_obj = gTTS(text=clean_text, lang=tts_lang, slow=False)
                 fp = io.BytesIO()
                 tts_obj.write_to_fp(fp)
