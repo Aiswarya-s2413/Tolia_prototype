@@ -196,15 +196,16 @@ class PiperTTSService:
     @staticmethod
     def synthesize(text, lang='en'):
         try:
-            voice = PiperTTSService.get_voice(lang)
+            # If text has Devanagari script, use Hindi neural voice model
+            effective_lang = 'hi' if any('\u0900' <= char <= '\u097F' for char in text) else ('hi' if lang in ['hi', 'mr'] else 'en')
+            voice = PiperTTSService.get_voice(effective_lang)
             if voice is None:
                 return None
 
             try:
                 from piper import SynthesisConfig
                 # Natural, articulate conversational pace tuned to normal human speech
-                # length_scale > 1.0 relaxes phoneme duration to eliminate rushed speaking
-                speed_scale = 1.10 if lang in ['hi', 'mr'] else 1.08
+                speed_scale = 1.10 if effective_lang in ['hi', 'mr'] else 1.08
                 syn_config = SynthesisConfig(
                     length_scale=speed_scale,  # Comfortable, natural human speaking speed
                     noise_scale=0.667,         # Clear, high-fidelity neural voice acoustics
@@ -254,7 +255,7 @@ class LocalTTSService:
             if not clean_text:
                 return None
 
-            active_lang = language if (language in ['hi', 'mr', 'en']) else detect_voice_language(clean_text)
+            active_lang = language if (language in ['hi', 'mr', 'en', 'mixed', 'hinglish']) else detect_voice_language(clean_text)
 
             # Check ultra-fast in-memory cache (0.001ms)
             cache_key = f"{active_lang}:{clean_text}"
@@ -272,7 +273,7 @@ class LocalTTSService:
             # 2. Universal Python gTTS Fallback
             try:
                 from gtts import gTTS
-                tts_lang = 'hi' if active_lang in ['hi', 'mr'] else 'en'
+                tts_lang = 'hi' if (active_lang in ['hi', 'mr'] or any('\u0900' <= char <= '\u097F' for char in clean_text)) else 'en'
                 tts_obj = gTTS(text=clean_text, lang=tts_lang, slow=False)
                 fp = io.BytesIO()
                 tts_obj.write_to_fp(fp)

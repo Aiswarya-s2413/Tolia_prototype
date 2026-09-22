@@ -58,7 +58,8 @@ def _get_active_ollama_model():
 
 def detect_language(text):
     """
-    Dynamically detect language (English 'en', Hindi 'hi', or Marathi 'mr') from user query or speech transcript.
+    Dynamically detect language ('en', 'hi', 'mr', or 'mixed' for Hindi+English / Hinglish)
+    from user query or speech transcript.
     """
     if not text or not text.strip():
         return 'en'
@@ -92,32 +93,51 @@ def detect_language(text):
         if re.search(rf'\b{re.escape(kw)}\b', text_lower):
             return 'mr'
 
-    # 2. Distinct Hindi markers & vocabulary (Devanagari script + Latin transliterations)
+    # 2. Check for Mixed Language (Hindi + English / Hinglish) & Hindi
     hindi_devanagari_words = [
         'क्या', 'कैसे', 'कैसा', 'कैसी', 'कब', 'कहाँ', 'कहा', 'है', 'हैं', 'हो', 'हूँ', 'हू',
         'बताओ', 'बताइए', 'बताएं', 'बतायें', 'सुरक्षा', 'करो', 'कीजिए', 'करें', 'चाहिए', 'सकते',
         'सकता', 'सकती', 'तुम्हारा', 'तुम्हारी', 'तुम्हारे', 'आपका', 'आपकी', 'आपके', 'मेरा', 'मेरी',
         'मेरे', 'नमस्ते', 'बारे', 'में', 'लिए', 'करना', 'करता', 'करती', 'होगी', 'होगा', 'होंगे',
-        'संयंत्र', 'उद्देश्य', 'बिक्री', 'कीमत', 'आपातकालीन', 'टोलिया क्या'
+        'संयंत्र', 'उद्देश्य', 'बिक्री', 'कीमत', 'आपातकालीन', 'टोलिया क्या', 'कितना', 'कितने', 'कितनी'
     ]
     hindi_latin_words = [
         'kya', 'kaise', 'kaisa', 'kaisi', 'kab', 'kaha', 'kahan', 'hai', 'hain', 'batao', 'bataiye',
         'karo', 'kijiye', 'chahiye', 'sakte', 'sakta', 'sakti', 'tumhara', 'tumhari', 'tumhare',
         'aapka', 'aapki', 'aapke', 'mera', 'meri', 'mere', 'namaste', 'liye', 'karna', 'karta',
-        'hoga', 'hogi', 'hota', 'hote'
+        'kare', 'karein', 'hoga', 'hogi', 'hota', 'hote', 'hoti', 'kitna', 'kitni', 'kitne',
+        'ka', 'ki', 'ke', 'ko', 'se', 'me', 'mein', 'par', 'aur', 'agar', 'toh', 'nahi'
     ]
 
-    for kw in hindi_devanagari_words:
-        if re.search(rf'(^|\s|[^\w\u0900-\u097F]){re.escape(kw)}($|\s|[^\w\u0900-\u097F])', text):
-            return 'hi'
+    devanagari_chars = re.findall(r'[\u0900-\u097F]', text)
+    english_words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
 
-    for kw in hindi_latin_words:
-        if re.search(rf'\b{re.escape(kw)}\b', text_lower):
-            return 'hi'
+    has_hindi_latin = any(re.search(rf'\b{re.escape(kw)}\b', text_lower) for kw in hindi_latin_words)
+    has_devanagari_word = any(re.search(rf'(^|\s|[^\w\u0900-\u097F]){re.escape(kw)}($|\s|[^\w\u0900-\u097F])', text) for kw in hindi_devanagari_words)
 
-    # 3. Devanagari Script Fallback
-    devanagari_count = len(re.findall(r'[\u0900-\u097F]', text))
-    if devanagari_count > 0:
+    # Technical or English vocabulary commonly used in plant queries
+    english_technical_terms = [
+        'blast', 'furnace', 'emergency', 'shutdown', 'pressure', 'temperature', 'hydraulic', 'oil',
+        'rolling', 'mill', 'gearbox', 'safety', 'ppe', 'helmet', 'shoes', 'rules', 'sop', 'sops',
+        'plant', 'factory', 'check', 'standard', 'testing', 'hardness', 'help', 'role', 'access',
+        'valve', 'bar', 'vibration', 'limit', 'step', 'steps', 'guidelines', 'alarm', 'gas', 'water',
+        'what', 'how', 'tell', 'show', 'status', 'level', 'flow', 'bearing', 'system'
+    ]
+    has_english_terms = any(re.search(rf'\b{re.escape(w)}\b', text_lower) for w in english_technical_terms)
+
+    # If Hindi words are written in Latin script with English keywords -> Mixed / Hinglish
+    if has_hindi_latin:
+        if has_english_terms or len(english_words) >= 2:
+            return 'mixed'
+        return 'hi'
+
+    # If Devanagari is mixed with English words -> Mixed / Hinglish
+    if len(devanagari_chars) > 0:
+        if len(english_words) >= 1 or has_english_terms:
+            return 'mixed'
+        return 'hi'
+
+    if has_devanagari_word:
         return 'hi'
 
     # Default to English
@@ -229,7 +249,15 @@ def is_general_or_meta_query(query_text):
 
 def get_general_assistant_response(query_text, target_lang='en', user_role=Department.QC):
     """Generate strictly accurate, precise explanation of Tolia AI purpose and capabilities in simple words."""
-    if target_lang == 'hi':
+    if target_lang in ['mixed', 'hinglish']:
+        return (
+            "**Main Tolia AI hoon** — steel plant operations ke liye aapka voice assistant.\n\n"
+            "• **Main aapki kaise help kar sakta hoon:**\n"
+            "  1. Blast Furnace aur Rolling Mill ke emergency SOPs aur shutdown steps batana.\n"
+            "  2. Machinery maintenance, hydraulic limits aur PPE safety rules explain karna.\n"
+            "  3. Hindi, English aur Marathi mein bolkar instant answer dena."
+        )
+    elif target_lang == 'hi':
         return (
             "**मैं Tolia AI हूँ** — स्टील प्लांट संचालन के लिए आपका वॉयस असिस्टेंट।\n\n"
             "• **मैं आपकी क्या मदद कर सकता हूँ:**\n"
@@ -395,7 +423,13 @@ class LocalRAGEngine:
         
         # 1. Security Guardrail Check for unauthorized sales/marketing access
         if is_sales_q and user_role != Department.CEO:
-            if target_lang == 'hi':
+            if target_lang in ['mixed', 'hinglish']:
+                refusal_msg = (
+                    "⚠️ **Security Restricted (Access Denied):**\n\n"
+                    "Confidential **Marketing & Sales** data sirf authorized **CEO (Chief Executive Officer)** ke liye accessible hai.\n\n"
+                    "Quality Control (QC) Inspector ke roop mein, aapke paas Quality Testing SOPs, Operational Checklists aur Plant Safety Guidelines dekhne ka access hai."
+                )
+            elif target_lang == 'hi':
                 refusal_msg = (
                     "⚠️ **सुरक्षा प्रतिबंध (Access Restricted):**\n\n"
                     "क्षमा करें, विपणन एवं बिक्री (Marketing & Sales) का गोपनीय डेटा केवल **CEO (मुख्य कार्यकारी अधिकारी)** के लिए ही सुलभ है।\n\n"
@@ -434,7 +468,9 @@ class LocalRAGEngine:
         top_chunks = LocalRAGEngine.retrieve_top_chunks(user_query, allowed_deps, top_k=3)
 
         if not top_chunks:
-            if target_lang == 'hi':
+            if target_lang in ['mixed', 'hinglish']:
+                no_doc_msg = "Is question ke liye system mein koi relevant plant document nahi mila. Please topic verify karein ya standard operating procedures check karein."
+            elif target_lang == 'hi':
                 no_doc_msg = "सिस्टम में इस प्रश्न के लिए कोई प्रासंगिक फ़ैक्टरी दस्तावेज़ नहीं मिला। कृपया आवश्यक SOPs अपलोड करें या व्यवस्थापक से संपर्क करें।"
             elif target_lang == 'mr':
                 no_doc_msg = "सिस्टीममध्ये या प्रश्नासाठी कोणताही संबंधित फॅक्टरी दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
@@ -491,7 +527,13 @@ class LocalRAGEngine:
 
         # 1. Security Guardrail Check for unauthorized sales/marketing access
         if is_sales_q and user_role != Department.CEO:
-            if target_lang == 'hi':
+            if target_lang in ['mixed', 'hinglish']:
+                refusal_msg = (
+                    "⚠️ **Security Restricted (Access Denied):**\n\n"
+                    "Confidential **Marketing & Sales** data sirf authorized **CEO (Chief Executive Officer)** ke liye accessible hai.\n\n"
+                    "Quality Control (QC) Inspector ke roop mein, aapke paas Quality Testing SOPs, Operational Checklists aur Plant Safety Guidelines dekhne ka access hai."
+                )
+            elif target_lang == 'hi':
                 refusal_msg = (
                     "⚠️ **सुरक्षा प्रतिबंध (Access Restricted):**\n\n"
                     "क्षमा करें, विपणन एवं बिक्री (Marketing & Sales) का गोपनीय डेटा केवल **CEO (मुख्य कार्यकारी अधिकारी)** के लिए ही सुलभ है।\n\n"
@@ -577,7 +619,9 @@ class LocalRAGEngine:
         top_chunks = LocalRAGEngine.retrieve_top_chunks(user_query, allowed_deps, top_k=3)
 
         if not top_chunks:
-            if target_lang == 'hi':
+            if target_lang in ['mixed', 'hinglish']:
+                no_doc_msg = "Is question ke liye system mein koi relevant plant document nahi mila. Please required SOPs check karein."
+            elif target_lang == 'hi':
                 no_doc_msg = "सिस्टम में इस प्रश्न के लिए कोई प्रासंगिक फ़ैक्टरी दस्तावेज़ नहीं मिला। कृपया आवश्यक SOPs अपलोड करें।"
             elif target_lang == 'mr':
                 no_doc_msg = "सिस्टीममध्ये या प्रश्नासाठी कोणताही संबंधित फॅक्टरी दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
@@ -657,7 +701,19 @@ class LocalRAGEngine:
             return None
         try:
             url = f"{base_url}/api/generate"
-            if lang == 'hi':
+            if lang in ['mixed', 'hinglish']:
+                system_prompt = (
+                    f"You are Tolia AI, an expert Steel Plant Voice Assistant. User role: {role}.\n"
+                    "CRITICAL ACCURACY & LANGUAGE RULES:\n"
+                    "1. The user asked in MIXED LANGUAGE (Hinglish / Hindi + English). You MUST respond in natural, conversational HINGLISH (a fluent mix of Hindi and English as commonly spoken in Indian steel plants and factories).\n"
+                    "2. Answer ONLY using facts from the DOCUMENT CONTEXT below. Never invent or guess facts.\n"
+                    "3. SUMMARIZE IN VERY SIMPLE WORDS: Keep sentences short, conversational, and easy to understand.\n"
+                    "4. Format with clean bullet points. Highlight critical values (temperatures, pressure, valve names, PPE) in **bold**.\n"
+                    "5. Example style: 'Blast Furnace emergency shutdown ke liye main steps ye hain: 1. Agar gas pressure 2.5 bar se jyada ho, toh turant **Main Control Valve (Valve B-4)** band karein...'\n"
+                    "6. If the context does not contain the answer, say: 'Ye jaankari plant ke SOPs mein available nahi hai.'\n"
+                    "7. Respond in clear, natural HINGLISH."
+                )
+            elif lang == 'hi':
                 system_prompt = (
                     f"You are Tolia AI, an expert Steel Plant Voice Assistant. User role: {role}.\n"
                     "CRITICAL ACCURACY & SIMPLICITY RULES:\n"
@@ -744,7 +800,16 @@ class LocalRAGEngine:
 
         # 1. Blast Furnace Emergency & Temperature
         if "blast" in q_lower or "furnace" in q_lower or "emergency" in q_lower or "shutdown" in q_lower or "ब्लास्ट" in query or "तापमान" in query:
-            if lang == 'hi':
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    "**Blast Furnace Emergency Shutdown Steps (Hinglish):**\n\n"
+                    "1. Agar gas pressure 2.5 bar se jyada ho, toh turant **Main Control Valve (Valve B-4)** band karein.\n"
+                    "2. Control Console 1 par laga **Red Emergency Stop Button** press karein.\n"
+                    "3. Gas backdraft rokne ke liye Snort valve open hoga aur **Nitrogen purge** start hoga.\n"
+                    "4. 3 siren blasts bajayein aur sabhi staff ko **Assembly Point 2** par evacuate karein.\n"
+                    "5. Operating temperature **1450°C se 1550°C** rehta hai. Heat suit aur face shield pehanna compulsory hai."
+                )
+            elif lang == 'hi':
                 return (
                     "**ब्लास्ट फर्नेस आपातकालीन नियम:**\n\n"
                     "1. यदि गैस दबाव 2.5 bar से अधिक हो, तो तुरंत **मुख्य वाल्व (Valve B-4)** बंद करें।\n"
@@ -774,7 +839,14 @@ class LocalRAGEngine:
 
         # 2. Rolling Mill Maintenance & Pressure
         if "rolling" in q_lower or "gearbox" in q_lower or "hydraulic" in q_lower or "रोलिंग" in query or "vibration" in q_lower:
-            if lang == 'hi':
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    "**Rolling Mill Maintenance Guidelines (Hinglish):**\n\n"
+                    "1. Gearbox oil har 100 operating hours par check karein. Sirf **ISO VG 320 synthetic oil** use karein.\n"
+                    "2. Hydraulic clamping pressure **210 bar (±5 bar)** maintain karein.\n"
+                    "3. Maximum allowable vibration **4.5 mm/s RMS** hai. Agar vibration 5.0 mm/s se upar jaye, toh line turant stop karein."
+                )
+            elif lang == 'hi':
                 return (
                     "**रोलिंग मिल रखरखाव नियम:**\n\n"
                     "1. गियरबॉक्स तेल प्रत्येक 100 घंटे पर चेक करें। केवल **ISO VG 320 सिंथेटिक तेल** का उपयोग करें।\n"
@@ -798,7 +870,15 @@ class LocalRAGEngine:
 
         # 3. PPE & General Plant Safety
         if "ppe" in q_lower or "safety" in q_lower or "helmet" in q_lower or "सुरक्षा" in query or "shoes" in q_lower or "पीपीई" in query:
-            if lang == 'hi':
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    "**Plant Safety & PPE Rules (Hinglish):**\n\n"
+                    "1. Plant floor par certified **Hard Hat (Helmet)** aur **Steel-Toe Safety Shoes** pehanna compulsory hai.\n"
+                    "2. High-Visibility Reflective Vest aur Safety Goggles pehnein.\n"
+                    "3. Rolling Mill area mein **28dB+ ear plugs** use karein.\n"
+                    "4. Pure plant premises mein smoking strictly prohibited hai."
+                )
+            elif lang == 'hi':
                 return (
                     "**कारखाना सुरक्षा एवं PPE नियम:**\n\n"
                     "1. सुरक्षा हेलमेट (Hard Hat) और स्टील-टो जूते पहनना अनिवार्य है।\n"
@@ -825,7 +905,15 @@ class LocalRAGEngine:
 
         # 4. Steel Quality & Hardness Testing
         if "hardness" in q_lower or "testing" in q_lower or "hrc" in q_lower or "rockwell" in q_lower or "हार्डनेस" in query or "गुणवत्ता" in query:
-            if lang == 'hi':
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    "**Steel Quality & Hardness Standards (Hinglish):**\n\n"
+                    "1. Grinding balls ki surface hardness **58 se 65 HRC** honi chahiye.\n"
+                    "2. Core (center) hardness minimum **55 HRC** mandatory hai.\n"
+                    "3. Testing Standard: **ASTM E18** Rockwell Hardness scale.\n"
+                    "4. Surface defects: 0.2 mm se gehre cracks allowed nahi hain."
+                )
+            elif lang == 'hi':
                 return (
                     "**स्टील गुणवत्ता एवं हार्डनेस मानक:**\n\n"
                     "1. ग्राइंडिंग बॉल्स की सतह पर हार्डनेस **58 से 65 HRC** होनी चाहिए।\n"
@@ -852,7 +940,17 @@ class LocalRAGEngine:
 
         # 5. Sales and Revenue (CEO authorized)
         if "sales" in q_lower or "revenue" in q_lower or "target" in q_lower or "pricing" in q_lower or "बिक्री" in query or "विक्री" in query:
-            if lang == 'hi':
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    f"**Confidential Commercial Sales & Revenue Report ({title} - Role: CEO - Hinglish):**\n\n"
+                    "1. **Revenue & Target Breakdown:**\n"
+                    "   - **Q1 Revenue Target:** ₹125 Crore (18.5% operating profit margin ke saath).\n"
+                    "   - **Q2 Revenue Target:** ₹140 Crore (export shipments par focus).\n"
+                    "   - **Annual Revenue Target:** ₹550 Crore.\n\n"
+                    "2. **Customer Pricing:**\n"
+                    "   - Mining clients (Forged Steel Balls): ₹72,500 per metric ton."
+                )
+            elif lang == 'hi':
                 return (
                     f"**गोपनीय वाणिज्यिक एवं बिक्री रिपोर्ट ({title} - Role: CEO):**\n\n"
                     "1. **वित्तीय एवं बिक्री लक्ष्य:**\n"

@@ -341,13 +341,14 @@ export default function ChatWindow({ activeRole }) {
     const voices = availableVoices.length > 0 ? availableVoices : (window.speechSynthesis.getVoices() || []);
     if (!voices || voices.length === 0) return null;
 
-    const targetLang = lang === 'hi' ? 'hi' : lang === 'mr' ? 'mr' : 'en';
+    const targetLang = lang === 'hi' ? 'hi' : lang === 'mr' ? 'mr' : (lang === 'mixed' || lang === 'hinglish') ? 'mixed' : 'en';
 
     // Find voices matching target language
     const matchedVoices = voices.filter(v => {
       const vLang = (v.lang || '').toLowerCase().replace('_', '-');
       if (targetLang === 'hi') return vLang.startsWith('hi');
       if (targetLang === 'mr') return vLang.startsWith('mr') || vLang.startsWith('hi');
+      if (targetLang === 'mixed') return vLang.startsWith('hi') || vLang.startsWith('en-in') || vLang.startsWith('en');
       return vLang.startsWith('en');
     });
 
@@ -371,7 +372,8 @@ export default function ChatWindow({ activeRole }) {
         const recognition = new SpeechRecognition();
         recognition.continuous = false;
         recognition.interimResults = true;
-        recognition.lang = currentDetectedLang === 'hi' ? 'hi-IN' : currentDetectedLang === 'mr' ? 'mr-IN' : 'en-US';
+        // en-IN and hi-IN in Web Speech natively capture mixed Hindi+English words seamlessly
+        recognition.lang = currentDetectedLang === 'hi' ? 'hi-IN' : currentDetectedLang === 'mr' ? 'mr-IN' : 'en-IN';
         speechRecognitionRef.current = recognition;
 
         let finalTranscript = '';
@@ -648,7 +650,7 @@ export default function ChatWindow({ activeRole }) {
       try {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(cleanText);
-        const langCode = langParam === 'hi' ? 'hi-IN' : langParam === 'mr' ? 'mr-IN' : 'en-US';
+        const langCode = langParam === 'hi' ? 'hi-IN' : langParam === 'mr' ? 'mr-IN' : (langParam === 'mixed' || langParam === 'hinglish') ? 'en-IN' : 'en-US';
         utterance.lang = langCode;
         utterance.rate = 0.93; // Calibrated for natural human conversation speed
         utterance.pitch = 1.0;
@@ -1014,9 +1016,11 @@ export default function ChatWindow({ activeRole }) {
   };
 
   const sampleVoicePrompts = [
+    { text: 'Blast furnace ka emergency shutdown steps kya hai?', langTag: 'HI+EN', color: 'text-violet-400' },
     { text: 'What are the emergency shutdown steps for Blast Furnace?', langTag: 'EN', color: 'text-cyan-400' },
     { text: 'ब्लास्ट फर्नेस आपातकालीन सुरक्षा नियम क्या हैं?', langTag: 'HI', color: 'text-amber-400' },
     { text: 'रोलिंग मिल गिअरबॉक्स ऑइल आणि हायड्रोलिक दाब SOP सांगा', langTag: 'MR', color: 'text-emerald-400' },
+    { text: 'Rolling mill gearbox oil kaise check kare?', langTag: 'HI+EN', color: 'text-violet-400' },
     { text: 'What is the standard hydraulic pressure for Rolling Mill?', langTag: 'EN', color: 'text-cyan-400' },
     { text: 'संयंत्र में अनिवार्य पीपीई किट नियम क्या हैं?', langTag: 'HI', color: 'text-amber-400' },
     { text: 'कारखान्यातील अनिवार्य पीपीई किट नियम काय आहेत?', langTag: 'MR', color: 'text-emerald-400' },
