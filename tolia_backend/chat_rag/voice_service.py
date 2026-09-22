@@ -173,7 +173,8 @@ class PiperTTSService:
             print("[Piper Notice]: piper_models directory not found")
             return None
 
-        if lang in ['hi', 'mr']:
+        # Always use Pratham (Indian Neural Voice) for Hindi, Marathi, and Mixed Hinglish
+        if lang in ['hi', 'mr', 'mixed', 'hinglish']:
             model_name = 'hi_IN-pratham-medium.onnx'
         else:
             model_name = 'en_US-lessac-medium.onnx'
@@ -196,8 +197,13 @@ class PiperTTSService:
     @staticmethod
     def synthesize(text, lang='en'):
         try:
-            # If text has Devanagari script or is mixed/Hinglish, use Hindi neural voice model
-            effective_lang = 'hi' if (any('\u0900' <= char <= '\u097F' for char in text) or lang in ['hi', 'mr', 'mixed', 'hinglish']) else 'en'
+            # For Hindi, Marathi, or Mixed (Hinglish), use Indian neural speaker (Pratham)
+            # Only pure English queries use Lessac
+            is_indic_or_mixed = (
+                lang in ['hi', 'mr', 'mixed', 'hinglish'] or
+                any('\u0900' <= char <= '\u097F' for char in text)
+            )
+            effective_lang = 'hi' if is_indic_or_mixed else 'en'
             voice = PiperTTSService.get_voice(effective_lang)
             if voice is None:
                 return None
@@ -205,7 +211,7 @@ class PiperTTSService:
             try:
                 from piper import SynthesisConfig
                 # Natural, articulate conversational pace tuned to normal human speech
-                speed_scale = 1.10 if effective_lang in ['hi', 'mr', 'mixed', 'hinglish'] else 1.08
+                speed_scale = 1.10 if is_indic_or_mixed else 1.08
                 syn_config = SynthesisConfig(
                     length_scale=speed_scale,  # Comfortable, natural human speaking speed
                     noise_scale=0.667,         # Clear, high-fidelity neural voice acoustics
@@ -262,7 +268,7 @@ class LocalTTSService:
             if cache_key in _tts_cache:
                 return _tts_cache[cache_key]
 
-            # 1. High-Fidelity Local Neural Voice: Piper-TTS
+            # 1. High-Fidelity Local Neural Voice: Piper-TTS (Indian Pratham speaker for Indic & Hinglish)
             piper_audio = PiperTTSService.synthesize(clean_text, lang=active_lang)
             if piper_audio and len(piper_audio) > 500:
                 if len(_tts_cache) >= _MAX_CACHE_SIZE:

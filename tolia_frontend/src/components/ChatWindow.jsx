@@ -341,26 +341,38 @@ export default function ChatWindow({ activeRole }) {
     const voices = availableVoices.length > 0 ? availableVoices : (window.speechSynthesis.getVoices() || []);
     if (!voices || voices.length === 0) return null;
 
-    const isHinglish = (lang === 'mixed' || lang === 'hinglish');
-    const targetLang = lang === 'hi' ? 'hi' : lang === 'mr' ? 'mr' : isHinglish ? 'hi' : 'en';
+    const isIndicOrMixed = (lang === 'hi' || lang === 'mr' || lang === 'mixed' || lang === 'hinglish');
 
-    // Find voices matching target language - for Hinglish/mixed ALWAYS prioritize Hindi & Indian voices
-    const matchedVoices = voices.filter(v => {
+    if (isIndicOrMixed) {
+      // Prioritize Native Hindi and Indian English voices so Hindi words are pronounced with native Indian clarity
+      const indicVoices = voices.filter(v => {
+        const vLang = (v.lang || '').toLowerCase().replace('_', '-');
+        const vName = (v.name || '').toLowerCase();
+        return vLang.startsWith('hi') || vLang.startsWith('mr') || vLang.startsWith('en-in') ||
+               vName.includes('hindi') || vName.includes('lekha') || vName.includes('neerja') ||
+               vName.includes('pratham') || vName.includes('india') || vName.includes('veena');
+      });
+
+      if (indicVoices.length > 0) {
+        const indicKeywords = ['google हिन्दी', 'lekha', 'neerja', 'hindi', 'en-in', 'india', 'natural', 'google'];
+        for (const kw of indicKeywords) {
+          const found = indicVoices.find(v => (v.name || '').toLowerCase().includes(kw) || (v.lang || '').toLowerCase().includes(kw));
+          if (found) return found;
+        }
+        return indicVoices[0];
+      }
+    }
+
+    // Default for pure English queries
+    const englishVoices = voices.filter(v => {
       const vLang = (v.lang || '').toLowerCase().replace('_', '-');
-      if (targetLang === 'hi') return vLang.startsWith('hi') || vLang.startsWith('en-in');
-      if (targetLang === 'mr') return vLang.startsWith('mr') || vLang.startsWith('hi');
       return vLang.startsWith('en');
     });
+    const candidates = englishVoices.length > 0 ? englishVoices : voices;
 
-    const candidates = matchedVoices.length > 0 ? matchedVoices : voices;
-
-    // Prioritize natural, fluent Indian/Hindi human neural voices
-    const qualityKeywords = isHinglish || targetLang === 'hi'
-      ? ['google हिन्दी', 'hindi', 'lekha', 'neerja', 'swara', 'madhav', 'india', 'natural', 'google', 'neural']
-      : ['natural', 'google', 'neural', 'premium', 'enhanced', 'samantha', 'lekha', 'karen', 'siri', 'aria', 'guy', 'jenny'];
-
+    const qualityKeywords = ['natural', 'google', 'neural', 'premium', 'enhanced', 'samantha', 'karen', 'siri', 'aria', 'guy', 'jenny'];
     for (const kw of qualityKeywords) {
-      const found = candidates.find(v => (v.name || '').toLowerCase().includes(kw) || (v.lang || '').toLowerCase().includes(kw));
+      const found = candidates.find(v => (v.name || '').toLowerCase().includes(kw));
       if (found) return found;
     }
 
