@@ -800,7 +800,7 @@ export default function ChatWindow({ activeRole }) {
       .replace(/\bkg\/cm2\b/gi, 'kilogram per square centimeter')
       .replace(/°C\b/g, ' degree Celsius')
       .replace(/°F\b/g, ' degree Fahrenheit')
-      .replace(/±/g, ' plus minus ')
+      .replace(/[±]|(\+\/-)|\b\+-\b/g, ' plus or minus ')
       .replace(/₹/g, 'Rupees ')
       .replace(/%/g, ' percent')
       .replace(/\b(\d+)\s*dB\+?\b/gi, '$1 decibels')

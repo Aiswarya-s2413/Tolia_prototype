@@ -262,7 +262,7 @@ def normalize_text_for_speech(text, lang='en'):
     # Symbols to Natural Spoken Words
     t = re.sub(r'°C\b', ' degree Celsius', t)
     t = re.sub(r'°F\b', ' degree Fahrenheit', t)
-    t = re.sub(r'±', ' plus minus ', t)
+    t = re.sub(r'[±]|(\+\/-)|\b\+-\b', ' plus or minus ', t)
     t = re.sub(r'₹', 'Rupees ', t)
     t = re.sub(r'%', ' percent', t)
     t = re.sub(r'\b(\d+)\s*dB\+?\b', r'\1 decibels', t, flags=re.IGNORECASE)
