@@ -243,6 +243,39 @@ class PiperTTSService:
 _tts_cache = {}
 _MAX_CACHE_SIZE = 500
 
+def normalize_text_for_speech(text, lang='en'):
+    """Convert technical symbols, slashes in measurement units, and abbreviations into natural spoken words."""
+    if not text:
+        return ""
+    t = re.sub(r'[*_#`~⚠️💡📌▶️✅🛡️🏢👥📋📜]', '', text)
+    t = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', t)
+    t = re.sub(r'https?:\/\/\S+', '', t)
+    
+    # Technical Measurement Units with Slashes
+    t = re.sub(r'\bmm\/s\b', 'millimeter per second', t, flags=re.IGNORECASE)
+    t = re.sub(r'\bm\/s\b', 'meter per second', t, flags=re.IGNORECASE)
+    t = re.sub(r'\bkm\/h\b', 'kilometer per hour', t, flags=re.IGNORECASE)
+    t = re.sub(r'\bl\/min\b', 'liters per minute', t, flags=re.IGNORECASE)
+    t = re.sub(r'\bkg\/cm2\b', 'kilogram per square centimeter', t, flags=re.IGNORECASE)
+    t = re.sub(r'\bkg\/m3\b', 'kilogram per cubic meter', t, flags=re.IGNORECASE)
+    
+    # Symbols to Natural Spoken Words
+    t = re.sub(r'°C\b', ' degree Celsius', t)
+    t = re.sub(r'°F\b', ' degree Fahrenheit', t)
+    t = re.sub(r'±', ' plus minus ', t)
+    t = re.sub(r'₹', 'Rupees ', t)
+    t = re.sub(r'%', ' percent', t)
+    t = re.sub(r'\b(\d+)\s*dB\+?\b', r'\1 decibels', t, flags=re.IGNORECASE)
+    
+    # Clean dashes in equipment codes (B-4 -> B 4)
+    t = re.sub(r'\b([A-Za-z])-(\d+)\b', r'\1 \2', t)
+    
+    # Remaining standalone slashes between words
+    t = re.sub(r'(\w+)\/(\w+)', r'\1 or \2', t)
+    t = re.sub(r'\/', ' ', t)
+    
+    return re.sub(r'\s+', ' ', t).strip()
+
 class LocalTTSService:
     @staticmethod
     def synthesize_speech(text, language=None):
@@ -253,10 +286,7 @@ class LocalTTSService:
         """
         global _tts_cache
         try:
-            clean_text = re.sub(r'[*_#`~⚠️💡📌▶️✅🛡️🏢👥📋📜]', '', text)
-            clean_text = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean_text)
-            clean_text = re.sub(r'https?:\/\/\S+', '', clean_text)
-            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+            clean_text = normalize_text_for_speech(text, language)
             
             if not clean_text:
                 return None

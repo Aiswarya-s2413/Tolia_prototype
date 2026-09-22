@@ -786,14 +786,34 @@ export default function ChatWindow({ activeRole }) {
     });
   };
 
-  // Queue sentence chunks for sub-second TTS playback with instant background pre-buffering
-  const queueSentenceForTTS = (sentenceText, msgIndex, targetLang) => {
-    const cleanText = sentenceText
+  const normalizeForSpeech = (text) => {
+    if (!text) return "";
+    return text
       .replace(/[*_#`~]/g, '')
       .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
       .replace(/\[(.*?)\]\(.*?\)/g, '$1')
       .replace(/https?:\/\/\S+/g, '')
+      .replace(/\bmm\/s\b/gi, 'millimeter per second')
+      .replace(/\bm\/s\b/gi, 'meter per second')
+      .replace(/\bkm\/h\b/gi, 'kilometer per hour')
+      .replace(/\bl\/min\b/gi, 'liters per minute')
+      .replace(/\bkg\/cm2\b/gi, 'kilogram per square centimeter')
+      .replace(/°C\b/g, ' degree Celsius')
+      .replace(/°F\b/g, ' degree Fahrenheit')
+      .replace(/±/g, ' plus minus ')
+      .replace(/₹/g, 'Rupees ')
+      .replace(/%/g, ' percent')
+      .replace(/\b(\d+)\s*dB\+?\b/gi, '$1 decibels')
+      .replace(/\b([A-Za-z])-(\d+)\b/g, '$1 $2')
+      .replace(/(\w+)\/(\w+)/g, '$1 or $2')
+      .replace(/\//g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
+  };
+
+  // Queue sentence chunks for sub-second TTS playback with instant background pre-buffering
+  const queueSentenceForTTS = (sentenceText, msgIndex, targetLang) => {
+    const cleanText = normalizeForSpeech(sentenceText);
 
     if (!cleanText || cleanText.length < 3) return;
 
@@ -867,12 +887,7 @@ export default function ChatWindow({ activeRole }) {
     stopVoice();
     unlockAudioContext();
 
-    const cleanText = text
-      .replace(/[*_#`~]/g, '')
-      .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
-      .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-      .replace(/https?:\/\/\S+/g, '')
-      .trim();
+    const cleanText = normalizeForSpeech(text);
 
     if (!cleanText) {
       stopVoice();
