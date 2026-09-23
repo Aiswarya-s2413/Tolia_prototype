@@ -387,6 +387,38 @@ def score_chunk_relevance(query, chunk):
 
     return score
 
+def is_plant_document_query(query_text, top_chunks=None):
+    """
+    Check whether a query specifically targets steel plant SOPs, machinery specifications,
+    safety regulations, maintenance schedules, or uploaded plant documents.
+    """
+    if not query_text:
+        return False
+    q_lower = normalize_voice_query(query_text).lower()
+    
+    # Specific plant operations, machinery & SOP keywords
+    plant_keywords = [
+        'blast furnace', 'blast', 'furnace', 'ब्लास्ट', 'फर्नेस', 'rolling mill', 'rolling', 'mill', 'रोलिंग', 'मिल',
+        'gearbox', 'गियरबॉक्स', 'गिअरबॉक्स', 'hydraulic', 'clamping', 'vibration', 'कंपन',
+        'ppe', 'helmet', 'हेलमेट', 'safety shoes', 'ear plug', 'goggles', 'सुरक्षा नियम', 'safety rules',
+        'grinding ball', 'grinding balls', 'hardness', 'rockwell', 'astm e18', 'हार्डनेस', 'hrc', 'cracks',
+        'snort valve', 'nitrogen purge', 'valve b-4', 'main control valve', 'assembly point',
+        'siren', 'hot metal tapping', 'mud gun', 'tuyere', 'taphole', 'iso vg 320', 'synthetic oil',
+        '210 bar', '2.5 bar', '1450°c', '1550°c', 'sop-bf-01', 'sop-rm-04', 'sop-saf-02', 'sop-qc-09',
+        'sales target', 'revenue report', 'operating profit margin', 'q1 revenue', 'q2 revenue', 'annual revenue',
+        '72,500', '125 crore', '550 crore', 'mining clients', 'pricing data', 'plant sop', 'factory sop'
+    ]
+    
+    if any(kw in q_lower for kw in plant_keywords):
+        return True
+        
+    if top_chunks and len(top_chunks) > 0:
+        top_score = score_chunk_relevance(query_text, top_chunks[0])
+        if top_score >= 12.0:
+            return True
+            
+    return False
+
 class LocalRAGEngine:
     @staticmethod
     def get_embedding(text):
@@ -412,8 +444,8 @@ class LocalRAGEngine:
     @staticmethod
     def query(user_query, user_role=Department.QC, target_lang=None):
         """
-        Main RAG query pipeline using native pgvector search and RBAC security filtering.
-        Strictly accurate factory responses + general capabilities support with dynamic English/Hindi/Marathi auto-detection.
+        Main RAG query pipeline using native pgvector search, RBAC security filtering,
+        and dual-core Grounded Document RAG + Local General Intelligence.
         """
         if not target_lang or target_lang == 'auto':
             target_lang = detect_language(user_query)
@@ -464,48 +496,46 @@ class LocalRAGEngine:
                 "language": target_lang
             }
 
-        # 3. Candidate chunks retrieved via native pgvector HNSW search
+        # 3. Retrieve Candidate Document Chunks
         top_chunks = LocalRAGEngine.retrieve_top_chunks(user_query, allowed_deps, top_k=3)
+        is_doc_q = is_plant_document_query(user_query, top_chunks)
 
-        if not top_chunks:
-            if target_lang in ['mixed', 'hinglish']:
-                no_doc_msg = "Is question ke liye system mein koi relevant plant document nahi mila. Please topic verify karein ya standard operating procedures check karein."
-            elif target_lang == 'hi':
-                no_doc_msg = "सिस्टम में इस प्रश्न के लिए कोई प्रासंगिक फ़ैक्टरी दस्तावेज़ नहीं मिला। कृपया आवश्यक SOPs अपलोड करें या व्यवस्थापक से संपर्क करें।"
-            elif target_lang == 'mr':
-                no_doc_msg = "सिस्टीममध्ये या प्रश्नासाठी कोणताही संबंधित फॅक्टरी दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
+        # 4A. If question specifically matches plant documents -> Return exact document facts
+        if is_doc_q and top_chunks:
+            sources = [
+                {
+                    "doc_title": clean_doc_title(chunk.document.title, target_lang),
+                    "category": chunk.document.category,
+                    "required_department": chunk.required_department,
+                    "snippet": chunk.text[:180] + "..."
+                }
+                for chunk in top_chunks
+            ]
+            context_text = "\n\n".join([f"Source ({clean_doc_title(c.document.title, target_lang)}): {c.text}" for c in top_chunks])
+            
+            ollama_response = LocalRAGEngine._call_ollama(user_query, context_text, target_lang, user_role)
+            if ollama_response:
+                final_response = ollama_response
             else:
-                no_doc_msg = "No relevant factory documents found in the system for this inquiry. Please verify the topic or seed relevant standard operating procedures."
+                final_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
+
             return {
-                "response": no_doc_msg,
-                "sources": [],
+                "response": final_response,
+                "sources": sources,
                 "access_blocked": False,
                 "language": target_lang
             }
 
-        sources = [
-            {
-                "doc_title": clean_doc_title(chunk.document.title, target_lang),
-                "category": chunk.document.category,
-                "required_department": chunk.required_department,
-                "snippet": chunk.text[:180] + "..."
-            }
-            for chunk in top_chunks
-        ]
-        
-        context_text = "\n\n".join([f"Source ({clean_doc_title(c.document.title, target_lang)}): {c.text}" for c in top_chunks])
-        
-        # 4. Attempt Local Ollama LLM execution with strict factuality prompt
-        ollama_response = LocalRAGEngine._call_ollama(user_query, context_text, target_lang, user_role)
-        
-        if ollama_response:
-            final_response = ollama_response
+        # 4B. For other questions -> Answer with Local General Intelligence
+        ollama_general = LocalRAGEngine._call_ollama_general(user_query, target_lang, user_role)
+        if ollama_general:
+            final_response = ollama_general
         else:
-            final_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
+            final_response = LocalRAGEngine._synthesize_local_general_response(user_query, target_lang, user_role)
 
         return {
             "response": final_response,
-            "sources": sources,
+            "sources": [],
             "access_blocked": False,
             "language": target_lang
         }
@@ -513,8 +543,8 @@ class LocalRAGEngine:
     @staticmethod
     def query_stream(user_query, user_role=Department.QC, target_lang=None):
         """
-        Streaming RAG generator yielding Server-Sent Events (SSE) using native pgvector search.
-        Strictly accurate answers + general capabilities streaming with dynamic English/Hindi/Marathi auto-detection.
+        Streaming RAG generator yielding Server-Sent Events (SSE) using native pgvector search
+        and dual-core Grounded Document RAG + Local General Intelligence.
         """
         import time
         from .models import ChatLog
@@ -615,45 +645,33 @@ class LocalRAGEngine:
             yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': general_response})}\n\n"
             return
 
-        # 3. Native pgvector HNSW candidate retrieval
+        # 3. Retrieve Candidate Document Chunks
         top_chunks = LocalRAGEngine.retrieve_top_chunks(user_query, allowed_deps, top_k=3)
+        is_doc_q = is_plant_document_query(user_query, top_chunks)
 
-        if not top_chunks:
-            if target_lang in ['mixed', 'hinglish']:
-                no_doc_msg = "Is question ke liye system mein koi relevant plant document nahi mila. Please required SOPs check karein."
-            elif target_lang == 'hi':
-                no_doc_msg = "सिस्टम में इस प्रश्न के लिए कोई प्रासंगिक फ़ैक्टरी दस्तावेज़ नहीं मिला। कृपया आवश्यक SOPs अपलोड करें।"
-            elif target_lang == 'mr':
-                no_doc_msg = "सिस्टीममध्ये या प्रश्नासाठी कोणताही संबंधित फॅक्टरी दस्तऐवज सापडला नाही. कृपया प्रशासकाशी संपर्क साधा."
+        if is_doc_q and top_chunks:
+            sources = [
+                {
+                    "doc_title": clean_doc_title(chunk.document.title, target_lang),
+                    "category": chunk.document.category,
+                    "required_department": chunk.required_department,
+                    "snippet": chunk.text[:180] + "..."
+                }
+                for chunk in top_chunks
+            ]
+            full_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
+        else:
+            sources = []
+            ollama_general = LocalRAGEngine._call_ollama_general(user_query, target_lang, user_role)
+            if ollama_general:
+                full_response = ollama_general
             else:
-                no_doc_msg = "No relevant factory documents found in the system for this inquiry. Please verify the topic or seed relevant standard operating procedures."
-
-            meta_data = {"type": "meta", "sources": [], "access_blocked": False, "language": target_lang}
-            yield f"data: {json.dumps(meta_data)}\n\n"
-            yield f"data: {json.dumps({'type': 'sentence', 'text': no_doc_msg, 'sentence_index': 0})}\n\n"
-            yield f"data: {json.dumps({'type': 'token', 'token': no_doc_msg})}\n\n"
-            yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': no_doc_msg})}\n\n"
-            return
-
-        sources = [
-            {
-                "doc_title": clean_doc_title(chunk.document.title, target_lang),
-                "category": chunk.document.category,
-                "required_department": chunk.required_department,
-                "snippet": chunk.text[:180] + "..."
-            }
-            for chunk in top_chunks
-        ]
+                full_response = LocalRAGEngine._synthesize_local_general_response(user_query, target_lang, user_role)
 
         meta_data = {"type": "meta", "sources": sources, "access_blocked": False, "language": target_lang}
         yield f"data: {json.dumps(meta_data)}\n\n"
 
-        context_text = "\n\n".join([f"Source ({clean_doc_title(c.document.title, target_lang)}): {c.text}" for c in top_chunks])
-
-        # 4. Instant Precision Factory SOP Synthesis & Real-Time Token Streaming (< 20ms)
-        full_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
-        
-        # Split into sentence chunks for real-time Piper-TTS speech dispatch
+        # 4. Stream Sentences and Tokens for Real-Time Speech & UI
         sentence_counter = 0
         sentence_delimiters = ['.', '।', '!', '?', '\n\n']
         parts = re.split(r'(\n\n|[।\.\?!]\s+)', full_response)
@@ -748,11 +766,13 @@ class LocalRAGEngine:
             prompt = f"{system_prompt}\n\nDOCUMENT CONTEXT:\n{context}\n\nUSER QUESTION:\n{query}\n\nCONCISE & SIMPLE ANSWER:"
             
             models_to_try = [
-                getattr(settings, 'OLLAMA_MODEL', 'qwen3.8:latest'),
+                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:1.5b'),
+                'qwen2.5:1.5b',
+                'qwen2.5:0.5b',
+                'qwen2.5',
                 'qwen3.8:latest',
                 'qwen3.8',
                 'qwen2.5:7b',
-                'qwen2.5',
                 'llama3'
             ]
             
@@ -782,6 +802,202 @@ class LocalRAGEngine:
         except Exception:
             pass
         return None
+
+    @staticmethod
+    def _call_ollama_general(query, lang, role):
+        """Call local Ollama LLM for general intelligence questions across science, metallurgy, math, general facts, and everyday questions."""
+        base_url = _get_ollama_base_url()
+        if not is_ollama_alive(base_url):
+            return None
+        try:
+            url = f"{base_url}/api/generate"
+            if lang in ['mixed', 'hinglish']:
+                system_prompt = (
+                    f"You are Tolia AI, an intelligent, helpful voice assistant with broad general intelligence. User role: {role}.\n"
+                    "RULES:\n"
+                    "1. Respond in natural, conversational HINGLISH (a fluent mix of Hindi and English as spoken in India).\n"
+                    "2. Give a clear, helpful, accurate answer in 2 to 4 concise sentences.\n"
+                    "3. Do NOT include language labels like '(Hinglish)' or brackets in headings.\n"
+                    "4. Be polite, direct, and conversational."
+                )
+            elif lang == 'hi':
+                system_prompt = (
+                    f"You are Tolia AI, an intelligent, helpful voice assistant with broad general intelligence. User role: {role}.\n"
+                    "RULES:\n"
+                    "1. Respond in clear, polite, natural HINDI.\n"
+                    "2. Give an accurate, helpful answer in 2 to 4 concise sentences.\n"
+                    "3. Be polite, direct, and conversational."
+                )
+            elif lang == 'mr':
+                system_prompt = (
+                    f"You are Tolia AI, an intelligent, helpful voice assistant with broad general intelligence. User role: {role}.\n"
+                    "RULES:\n"
+                    "1. Respond in clear, natural MARATHI.\n"
+                    "2. Give an accurate, helpful answer in 2 to 4 concise sentences."
+                )
+            else:
+                system_prompt = (
+                    f"You are Tolia AI, an intelligent, helpful voice assistant with broad general intelligence. User role: {role}.\n"
+                    "RULES:\n"
+                    "1. Respond in clear, direct, natural ENGLISH.\n"
+                    "2. Give an accurate, helpful answer in 2 to 4 concise sentences.\n"
+                    "3. Be polite, direct, and conversational."
+                )
+
+            prompt = f"{system_prompt}\n\nUSER QUESTION:\n{query}\n\nCONCISE & HELPFUL ANSWER:"
+            
+            models_to_try = [
+                getattr(settings, 'OLLAMA_MODEL', 'qwen2.5:1.5b'),
+                'qwen2.5:1.5b',
+                'qwen2.5:0.5b',
+                'qwen2.5',
+                'qwen3.8:latest',
+                'qwen3.8',
+                'qwen2.5:7b',
+                'llama3'
+            ]
+            seen = set()
+            unique_models = [m for m in models_to_try if not (m in seen or seen.add(m))]
+
+            for model_name in unique_models:
+                try:
+                    payload = {
+                        "model": model_name,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.2,
+                            "top_p": 0.9,
+                            "max_tokens": 250
+                        }
+                    }
+                    res = requests.post(url, json=payload, timeout=(1.5, 4.5))
+                    if res.status_code == 200:
+                        data = res.json()
+                        response_text = data.get("response", "").strip()
+                        if response_text:
+                            return response_text
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _synthesize_local_general_response(query, lang, role):
+        """Intelligent local fallback response generator for general questions (science, metallurgy, math, general facts, greetings)."""
+        q_lower = query.lower().strip()
+
+        # 1. Iron vs Steel / Metallurgy Principles
+        if ("difference" in q_lower or "farak" in q_lower or "antar" in q_lower or "farq" in q_lower) and ("steel" in q_lower and "iron" in q_lower):
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    "**Steel aur Iron mein main farak:**\n\n"
+                    "Iron (Loha) ek basic chemical element (Fe) hai, jabki Steel ek **alloy (mishradhatu)** hai jo Iron aur thoda Carbon milakar banta hai.\n"
+                    "Steel, pure iron ke comparison mein zyada strong, durable aur rust-resistant hota hai."
+                )
+            elif lang == 'hi':
+                return (
+                    "**स्टील और लोहे में मुख्य अंतर:**\n\n"
+                    "लोहा (Iron) एक मूल रासायनिक तत्व (Fe) है, जबकि स्टील लोहे और कार्बन का एक **मिश्र धातु (Alloy)** है।\n"
+                    "स्टील लोहे की तुलना में अधिक मजबूत, लचीला और टिकाऊ होता है।"
+                )
+            elif lang == 'mr':
+                return (
+                    "**स्टील आणि लोखंडातील मुख्य फरक:**\n\n"
+                    "लोखंड (Iron) हे मूलभूत रासायनिक मूलद्रव्य आहे, तर स्टील हे लोखंड आणि कार्बनचे **मिश्रधातू (Alloy)** आहे.\n"
+                    "स्टील हे शुद्ध लोखंडापेक्षा जास्त मजबूत आणि टिकाऊ असते."
+                )
+            else:
+                return (
+                    "**Difference between Steel and Iron:**\n\n"
+                    "Iron is a pure chemical element (Fe), whereas **Steel is an alloy** made of iron combined with a small percentage of carbon (and other metals).\n"
+                    "Steel is significantly stronger, tougher, and more ductile than pure raw iron."
+                )
+
+        # 2. Rusting / Corrosion Principles
+        if "rust" in q_lower or "corrosion" in q_lower or "zang" in q_lower or "jung" in q_lower or "जंग" in query or "गंज" in query:
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    "**Rusting (Jang lagne ka reason):**\n\n"
+                    "Jab Iron oxygen aur moisture (nami) ke contact mein aata hai, toh chemical reaction se **Iron Oxide ($Fe_2O_3$)** banta hai, jise Rust ya Jang kehte hain.\n"
+                    "Ise rokne ke liye galvanization, painting ya stainless steel ka use kiya jata hai."
+                )
+            elif lang == 'hi':
+                return (
+                    "**जंग (Rusting) लगने का कारण:**\n\n"
+                    "जब लोहा ऑक्सीजन और नमी (पानी) के संपर्क में आता है, तो रासायनिक प्रतिक्रिया से **आयरन ऑक्साइड** बनता है जिसे जंग कहते हैं।\n"
+                    "जंग से बचाव के लिए गैल्वनाइजेशन, पेंटिंग या स्टेनलेस स्टील का प्रयोग किया जाता है।"
+                )
+            else:
+                return (
+                    "**Why Iron Rusts:**\n\n"
+                    "Rusting occurs when iron reacts with **oxygen and moisture** in the air to form hydrated iron(III) oxide ($Fe_2O_3$).\n"
+                    "It can be prevented through protective coatings, galvanization, or by using stainless steel alloys."
+                )
+
+        # 3. Hydraulic Principles & Pascal's Law
+        if "hydraulic" in q_lower and ("work" in q_lower or "principle" in q_lower or "pascal" in q_lower or "kaise" in q_lower):
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    "**Hydraulic System ka Principle:**\n\n"
+                    "Hydraulic systems **Pascal's Law** par kaam karte hain: kisi enclosed fluid par lagaya gaya pressure sabhi directions mein equally transmit hota hai.\n"
+                    "Isse chhota force lagakar heavy plant machinery aur rolling rolls ko easily lift ya clamp kiya jata hai."
+                )
+            else:
+                return (
+                    "**How Hydraulic Systems Work:**\n\n"
+                    "Hydraulic systems operate based on **Pascal's Law**, where pressure applied to an enclosed incompressable fluid is transmitted equally in all directions.\n"
+                    "This allows small input forces to generate tremendous output force to move heavy rolling machinery and clamps."
+                )
+
+        # 4. Thermal Expansion in Metals
+        if "expand" in q_lower or "heat" in q_lower or "thermal" in q_lower or "faelta" in q_lower:
+            if lang in ['mixed', 'hinglish']:
+                return (
+                    "**Metals mein Thermal Expansion:**\n\n"
+                    "Jab metals ko heat kiya jata hai, toh unke atoms ki kinetic energy badh jaati hai aur wo zyada vibrate karte hain, jisse metal expand hota hai.\n"
+                    "Cool hone par metal wapas contract hokar apne normal size mein aa jata hai."
+                )
+            else:
+                return (
+                    "**Thermal Expansion in Metals:**\n\n"
+                    "When metals are heated, their atoms absorb thermal energy and vibrate more vigorously, causing the material to expand.\n"
+                    "Upon cooling, the kinetic energy decreases and the metal contracts back to its original dimensions."
+                )
+
+        # 5. General Arithmetic / Calculation helper
+        math_match = re.search(r'(\d+)\s*([\+\-\*\/])\s*(\d+)', q_lower)
+        if math_match:
+            n1, op, n2 = float(math_match.group(1)), math_match.group(2), float(math_match.group(3))
+            res = n1 + n2 if op == '+' else n1 - n2 if op == '-' else n1 * n2 if op == '*' else (n1 / n2 if n2 != 0 else 'undefined')
+            if lang in ['mixed', 'hinglish']:
+                return f"**Calculation Result:**\n\n{int(n1)} {op} {int(n2)} ka answer **{int(res) if isinstance(res, float) and res.is_integer() else res}** hai."
+            elif lang == 'hi':
+                return f"**गणना परिणाम:**\n\n{int(n1)} {op} {int(n2)} का उत्तर **{int(res) if isinstance(res, float) and res.is_integer() else res}** है।"
+            else:
+                return f"**Calculation Result:**\n\n{int(n1)} {op} {int(n2)} = **{int(res) if isinstance(res, float) and res.is_integer() else res}**."
+
+        # 6. Conversational Greetings / Wellbeing
+        if any(w in q_lower for w in ['hello', 'hi', 'hey', 'namaste', 'namaskar', 'kaise ho', 'how are you', 'good morning', 'good evening']):
+            if lang in ['mixed', 'hinglish']:
+                return "Namaste! Main **Tolia Voice AI** hoon. Main bilkul theek hoon aur aapki help ke liye ready hoon. Aap plant operations ya koi bhi general sawaal pooch sakte hain."
+            elif lang == 'hi':
+                return "नमस्ते! मैं **Tolia Voice AI** हूँ। मैं पूरी तरह तैयार हूँ। आप स्टील प्लांट संचालन या कोई भी सामान्य प्रश्न पूछ सकते हैं।"
+            elif lang == 'mr':
+                return "नमस्कार! मी **Tolia Voice AI** आहे. मी सज्ज आहे. आपण कारखान्याबद्दल किंवा इतर कोणताही प्रश्न विचारू शकता."
+            else:
+                return "Hello! I am **Tolia Voice AI**. I am running well and ready to assist you with plant SOPs, machinery parameters, or any general questions."
+
+        # 7. Broad General Response Fallback
+        if lang in ['mixed', 'hinglish']:
+            return f"Aapka sawaal **\"{query}\"** general knowledge se related hai. Tolia AI aapke sabhi plant operations, machinery parameters aur general technical inquiries mein help karne ke liye ready hai."
+        elif lang == 'hi':
+            return f"आपका प्रश्न **\"{query}\"** सामान्य ज्ञान से संबंधित है। Tolia AI आपके संयंत्र संचालन और तकनीकी प्रश्नों के उत्तर के लिए तैयार है।"
+        elif lang == 'mr':
+            return f"आपला प्रश्न **\"{query}\"** सामान्य माहितीशी संबंधित आहे. Tolia AI आपल्या सेवेसाठी उपलब्ध आहे."
+        else:
+            return f"Regarding your question **\"{query}\"**: Tolia AI is equipped with intelligent reasoning to assist across steel plant operations, engineering principles, and general inquiries."
 
     @staticmethod
     def _synthesize_local_response(query, chunks, lang, role):
