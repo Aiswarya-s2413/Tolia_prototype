@@ -346,7 +346,7 @@ def score_chunk_relevance(query, chunk):
     
     # Stop words
     stop_words = {'what', 'is', 'are', 'the', 'for', 'and', 'in', 'of', 'to', 'a', 'an', 'how', 'tell', 'give', 'me', 'kya', 'hai', 'ka', 'ke', 'ki', 'ko', 'me', 'batao', 'sanga'}
-    keywords = [w for w in query_words if w not in stop_words and len(w) > 1]
+    keywords = [w for w in query_words if w not in stop_words and len(w) > 1 and not w.isdigit()]
     
     if not keywords:
         return 0.1
@@ -365,7 +365,7 @@ def score_chunk_relevance(query, chunk):
         score += count * 2.0
 
     # Technical codes & standards exact matching boost
-    technical_codes = ['sop-bf-01', 'sop-rm-04', 'sop-saf-02', 'sop-qc-09', 'fin-2026', 'astm', 'e18', 'hrc', 'rockwell', 'iso vg 320', 'vg 320', '210 bar', '1450', '1550', '2.5 bar', 'valve b-4', 'snort valve', 'nitrogen', 'mud gun', '72,500', '125 crore', '550 crore']
+    technical_codes = ['sop-bf-01', 'sop-rm-04', 'sop-saf-02', 'sop-qc-09', 'fin-2026', 'astm e18', 'astm', 'e18', 'rockwell', 'iso vg 320', 'vg 320', '210 bar', '2.5 bar', 'valve b-4', 'snort valve', 'nitrogen purge', 'mud gun', '72,500', '125 crore', '550 crore']
     for code in technical_codes:
         if code in norm_query and code in chunk_text_lower:
             score += 35.0
@@ -376,16 +376,42 @@ def score_chunk_relevance(query, chunk):
         score += 25.0
     if ('shutdown' in q_norm_lower or 'emergency' in q_norm_lower or 'आपातकालीन' in query or 'आपत्कालीन' in query or 'siren' in q_norm_lower) and 'emergency' in chunk_text_lower:
         score += 20.0
-    if ('rolling' in q_norm_lower or 'gearbox' in q_norm_lower or 'hydraulic' in q_norm_lower or 'रोलिंग' in query or 'vibration' in q_norm_lower or 'lubricant' in q_norm_lower) and 'rolling mill' in doc_title_lower:
+    if ('rolling mill' in q_norm_lower or 'gearbox' in q_norm_lower or 'hydraulic clamping' in q_norm_lower or 'रोलिंग' in query or 'vibration' in q_norm_lower) and 'rolling mill' in doc_title_lower:
         score += 25.0
-    if ('ppe' in q_norm_lower or 'safety' in q_norm_lower or 'helmet' in q_norm_lower or 'सुरक्षा' in query or 'goggles' in q_norm_lower or 'ear' in q_norm_lower or 'smoking' in q_norm_lower) and 'safety' in doc_title_lower:
+    if ('ppe' in q_norm_lower or 'plant safety' in q_norm_lower or 'helmet' in q_norm_lower or 'सुरक्षा नियम' in query or 'safety rules' in q_norm_lower or 'goggles' in q_norm_lower or 'ear plug' in q_norm_lower) and 'safety' in doc_title_lower:
         score += 25.0
-    if ('hardness' in q_norm_lower or 'testing' in q_norm_lower or 'hrc' in q_norm_lower or 'rockwell' in q_norm_lower or 'हार्डनेस' in query or 'crack' in q_norm_lower or 'austenite' in q_norm_lower) and 'quality' in doc_title_lower:
+    if ('hardness testing' in q_norm_lower or 'hrc' in q_norm_lower or 'rockwell' in q_norm_lower or 'हार्डनेस' in query or 'grinding ball' in q_norm_lower) and 'quality' in doc_title_lower:
         score += 25.0
-    if ('sales' in q_norm_lower or 'revenue' in q_norm_lower or 'target' in q_norm_lower or 'pricing' in q_norm_lower or 'बिक्री' in query or 'विक्री' in query or 'profit' in q_norm_lower or 'crore' in q_norm_lower) and 'sales' in doc_title_lower:
+    if ('sales target' in q_norm_lower or 'revenue report' in q_norm_lower or 'pricing data' in q_norm_lower or 'बिक्री' in query or 'विक्री' in query or 'profit margin' in q_norm_lower) and 'sales' in doc_title_lower:
         score += 25.0
 
     return score
+
+def is_general_query(query_text):
+    """Detect if query is a general intelligence query (math, comparisons, science, everyday questions)."""
+    if not query_text:
+        return False
+    q = query_text.lower().strip()
+    
+    # 1. Math & arithmetic calculations
+    if re.search(r'\d+\s*[\+\-\*\/xX]\s*\d+', q) or any(w in q for w in ['calculate', 'calculation', 'multiply', 'divide', 'percentage of', 'plus', 'minus']):
+        return True
+        
+    # 2. General science, comparisons, definitions
+    general_patterns = [
+        r'\b(difference\s+between|farak|farq|antar|vs|versus)\b',
+        r'\b(why\s+does|why\s+do|kyu|kyun|kaaran|reason)\b',
+        r'\b(what\s+is\s+the\s+capital|who\s+is|who\s+was|prime\s+minister|president)\b',
+        r'\b(boiling\s+point|melting\s+point|chemical\s+formula|atomic\s+number)\b',
+        r'\b(weather|temperature\s+outside|time|date|joke|poem|story)\b',
+        r'\b(rust|rusting|corrosion|zang|jung)\b',
+        r'\b(hello|hi|hey|namaste|kaise\s+ho|how\s+are\s+you|thank\s+you|thanks)\b'
+    ]
+    for pattern in general_patterns:
+        if re.search(pattern, q):
+            return True
+            
+    return False
 
 def is_plant_document_query(query_text, top_chunks=None):
     """
@@ -394,12 +420,17 @@ def is_plant_document_query(query_text, top_chunks=None):
     """
     if not query_text:
         return False
+        
+    # Explicit general queries are routed to General Intelligence
+    if is_general_query(query_text):
+        return False
+
     q_lower = normalize_voice_query(query_text).lower()
     
     # Specific plant operations, machinery & SOP keywords
     plant_keywords = [
         'blast furnace', 'blast', 'furnace', 'ब्लास्ट', 'फर्नेस', 'rolling mill', 'rolling', 'mill', 'रोलिंग', 'मिल',
-        'gearbox', 'गियरबॉक्स', 'गिअरबॉक्स', 'hydraulic', 'clamping', 'vibration', 'कंपन',
+        'gearbox', 'गियरबॉक्स', 'गिअरबॉक्स', 'hydraulic clamping', 'vibration limit', 'कंपन',
         'ppe', 'helmet', 'हेलमेट', 'safety shoes', 'ear plug', 'goggles', 'सुरक्षा नियम', 'safety rules',
         'grinding ball', 'grinding balls', 'hardness', 'rockwell', 'astm e18', 'हार्डनेस', 'hrc', 'cracks',
         'snort valve', 'nitrogen purge', 'valve b-4', 'main control valve', 'assembly point',
@@ -414,7 +445,7 @@ def is_plant_document_query(query_text, top_chunks=None):
         
     if top_chunks and len(top_chunks) > 0:
         top_score = score_chunk_relevance(query_text, top_chunks[0])
-        if top_score >= 12.0:
+        if top_score >= 18.0:
             return True
             
     return False
