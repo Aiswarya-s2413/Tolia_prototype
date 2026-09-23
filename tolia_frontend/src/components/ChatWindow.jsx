@@ -49,6 +49,7 @@ export default function ChatWindow({ activeRole }) {
   const [currentDetectedLang, setCurrentDetectedLang] = useState('en');
 
   const messagesContainerRef = useRef(null);
+  const messagesEndRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -58,6 +59,10 @@ export default function ChatWindow({ activeRole }) {
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
+    // Reliable scroll to bottom via sentinel div
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
   };
 
@@ -1006,6 +1011,8 @@ export default function ChatWindow({ activeRole }) {
                   ...m,
                   text: accumulatedText
                 } : m));
+                // Auto-scroll to latest content as it streams in
+                scrollToBottom();
               } else if (data.type === 'sentence') {
                 if (autoSpeak && data.text) {
                   hasQueuedAudioRef.current = true;
@@ -1510,6 +1517,8 @@ export default function ChatWindow({ activeRole }) {
             );
           })}
 
+          {/* Sentinel div — scrollIntoView target for auto-scroll */}
+          <div ref={messagesEndRef} style={{ height: 0 }} />
         </div>
 
         {/* Persistent Floating Audio Controller Dock when Voice is Active/Paused */}

@@ -640,7 +640,8 @@ class LocalRAGEngine:
             meta_data = {"type": "meta", "sources": [], "access_blocked": False, "language": target_lang}
             yield f"data: {json.dumps(meta_data)}\n\n"
 
-            # Stream sentences and tokens
+            # Stream sentences and tokens — sentence event fires BEFORE its tokens
+            # so TTS pre-buffering and synthesis starts immediately on the frontend.
             sentence_counter = 0
             parts = re.split(r'(\n\n|[।\.\?!]\s+)', general_response)
             buffer = ""
@@ -649,11 +650,13 @@ class LocalRAGEngine:
                 if '\n' in buffer or any(buffer.strip().endswith(d) for d in ['.', '।', '!', '?']) or len(buffer) > 120:
                     clean_sent = buffer.strip()
                     if clean_sent:
+                        # Fire sentence FIRST so TTS starts synthesizing in parallel
                         yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
                         sentence_counter += 1
+                    # Tokens trickle at 15ms each — text appears in sync with audio
                     for word in re.findall(r'\S+|\s+', buffer):
                         yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                        time.sleep(0.01)
+                        time.sleep(0.015)
                     buffer = ""
 
             if buffer.strip():
@@ -661,7 +664,7 @@ class LocalRAGEngine:
                 yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
                 for word in re.findall(r'\S+|\s+', buffer):
                     yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                    time.sleep(0.01)
+                    time.sleep(0.015)
 
             yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': general_response})}\n\n"
             return
@@ -689,20 +692,27 @@ class LocalRAGEngine:
         yield f"data: {json.dumps(meta_data)}\n\n"
 
         # 4. Stream Sentences and Tokens for Real-Time Speech & UI
+        # KEY: sentence event fires BEFORE its tokens so TTS synthesis starts
+        # immediately while text types in at 15ms/token — synchronized like
+        # Google Assistant (voice and text appear together, not voice delayed).
         sentence_counter = 0
         sentence_delimiters = ['.', '।', '!', '?', '\n\n']
         parts = re.split(r'(\n\n|[।\.\?!]\s+)', full_response)
         buffer = ""
+        first_sentence_sent = False
         for part in parts:
             buffer += part
             if any(buffer.strip().endswith(d) for d in sentence_delimiters) or len(buffer) > 80:
                 clean_sent = buffer.strip()
                 if clean_sent:
+                    # Sentence fires FIRST — TTS starts synthesizing before tokens stream
                     yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
                     sentence_counter += 1
+                    first_sentence_sent = True
+                # Tokens trickle at 15ms each — matches typical Piper synthesis speed
                 for word in re.findall(r'\S+|\s+', buffer):
                     yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                    time.sleep(0.002)
+                    time.sleep(0.015)
                 buffer = ""
 
         if buffer.strip():
@@ -711,7 +721,7 @@ class LocalRAGEngine:
                 yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
             for word in re.findall(r'\S+|\s+', buffer):
                 yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                time.sleep(0.002)
+                time.sleep(0.015)
 
         # Save query log
         try:
