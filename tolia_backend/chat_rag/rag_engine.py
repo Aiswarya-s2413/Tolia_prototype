@@ -542,13 +542,7 @@ class LocalRAGEngine:
                 }
                 for chunk in top_chunks
             ]
-            context_text = "\n\n".join([f"Source ({clean_doc_title(c.document.title, target_lang)}): {c.text}" for c in top_chunks])
-            
-            ollama_response = LocalRAGEngine._call_ollama(user_query, context_text, target_lang, user_role)
-            if ollama_response:
-                final_response = ollama_response
-            else:
-                final_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
+            final_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
 
             return {
                 "response": final_response,
@@ -557,12 +551,8 @@ class LocalRAGEngine:
                 "language": target_lang
             }
 
-        # 4B. For other questions -> Answer with Local General Intelligence
-        ollama_general = LocalRAGEngine._call_ollama_general(user_query, target_lang, user_role)
-        if ollama_general:
-            final_response = ollama_general
-        else:
-            final_response = LocalRAGEngine._synthesize_local_general_response(user_query, target_lang, user_role)
+        # 4B. For other questions -> Instant Local General Intelligence
+        final_response = LocalRAGEngine._synthesize_local_general_response(user_query, target_lang, user_role)
 
         return {
             "response": final_response,
@@ -693,11 +683,7 @@ class LocalRAGEngine:
             full_response = LocalRAGEngine._synthesize_local_response(user_query, top_chunks, target_lang, user_role)
         else:
             sources = []
-            ollama_general = LocalRAGEngine._call_ollama_general(user_query, target_lang, user_role)
-            if ollama_general:
-                full_response = ollama_general
-            else:
-                full_response = LocalRAGEngine._synthesize_local_general_response(user_query, target_lang, user_role)
+            full_response = LocalRAGEngine._synthesize_local_general_response(user_query, target_lang, user_role)
 
         meta_data = {"type": "meta", "sources": sources, "access_blocked": False, "language": target_lang}
         yield f"data: {json.dumps(meta_data)}\n\n"
@@ -1046,8 +1032,35 @@ class LocalRAGEngine:
         if is_general_or_meta_query(query):
             return get_general_assistant_response(query, target_lang=lang, user_role=role)
 
-        # 1. Blast Furnace Emergency & Temperature
-        if "blast" in q_lower or "furnace" in q_lower or "emergency" in q_lower or "shutdown" in q_lower or "ब्लास्ट" in query or "तापमान" in query:
+        # 1. Blast Furnace Operations & Definition
+        if "blast" in q_lower or "furnace" in q_lower or "ब्लास्ट" in query or "तापमान" in query:
+            is_definition = any(w in q_lower for w in ['what is', 'kya hota', 'kya hai', 'meaning', 'batao', 'explain', 'purpose']) and not any(w in q_lower for w in ['emergency', 'shutdown', 'valve', 'siren', 'procedure', 'aapatkalin', 'band'])
+            if is_definition:
+                if lang in ['mixed', 'hinglish']:
+                    return (
+                        "**Blast Furnace (ब्लास्ट फर्नेस):**\n\n"
+                        "Blast Furnace ek bada industrial smelting reactor hai jo iron ore, coke aur limestone ko melt karke liquid **hot metal (molten iron)** banata hai.\n"
+                        "Humare plant mein iska operating temperature **1450°C se 1550°C** rehta hai, aur ye automated snort valve aur nitrogen purge safety system ke sath operate hota hai."
+                    )
+                elif lang == 'hi':
+                    return (
+                        "**ब्लास्ट फर्नेस (Blast Furnace):**\n\n"
+                        "ब्लास्ट फर्नेस एक विशाल धातुकर्म भट्टी है जो लौह अयस्क, कोक और चूना पत्थर को पिघलाकर तरल **कच्चा लोहा (Hot Metal)** बनाती है।\n"
+                        "संयंत्र में इसका परिचालन तापमान **1450°C से 1550°C** रहता है और यह स्वचालित सुरक्षा प्रणालियों से लैस है।"
+                    )
+                elif lang == 'mr':
+                    return (
+                        "**ब्लास्ट फर्नेस (Blast Furnace):**\n\n"
+                        "ब्लास्ट फर्नेस ही एक मोठी भट्टी आहे जी लोखंडाच्या खनिजाला वितळवून द्रव **कच्चे लोखंड (Hot Metal)** तयार करते.\n"
+                        "कारखान्यात याचे तापमान **१४५०°C ते १५५०°C** असते."
+                    )
+                else:
+                    return (
+                        "**Blast Furnace Operations:**\n\n"
+                        "A **Blast Furnace** is a massive metallurgical smelting reactor used to continuously convert iron ore, coke, and limestone into molten liquid iron (hot metal).\n"
+                        "In our plant, it operates at temperatures between **1450°C and 1550°C**, equipped with automated snort valves and nitrogen purge safety mechanisms."
+                    )
+
             if lang in ['mixed', 'hinglish']:
                 return (
                     "**Blast Furnace Emergency Shutdown Steps:**\n\n"
