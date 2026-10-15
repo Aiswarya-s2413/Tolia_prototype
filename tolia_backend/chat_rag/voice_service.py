@@ -438,17 +438,56 @@ class IndicSpeakTTSService:
                 print(f"[Indic-Speak Synthesis Error]: {e}")
                 return None
 
+class EdgeNeuralTTSService:
+    """
+    Studio-Grade Human Native Voice Text-to-Speech Engine.
+    Uses authentic Microsoft Neural voices:
+    - Hindi: hi-IN-SwaraNeural (Natural, warm human Hindi female voice)
+    - Marathi: mr-IN-AarohiNeural (Natural native Marathi female voice)
+    - English: en-IN-NeerjaNeural (Natural native Indian English female voice)
+    Zero cost, zero API keys, 100% human-native tone and inflection.
+    """
+    @staticmethod
+    def synthesize(text, lang='en'):
+        try:
+            import asyncio
+            import concurrent.futures
+            import edge_tts
+
+            if lang in ['hi', 'mixed', 'hinglish']:
+                voice = 'hi-IN-SwaraNeural'
+            elif lang == 'mr':
+                voice = 'mr-IN-AarohiNeural'
+            else:
+                voice = 'en-IN-NeerjaNeural'
+
+            async def _synthesize():
+                comm = edge_tts.Communicate(text, voice)
+                audio = bytearray()
+                async for chunk in comm.stream():
+                    if chunk['type'] == 'audio':
+                        audio.extend(chunk['data'])
+                return bytes(audio)
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                fut = pool.submit(lambda: asyncio.run(_synthesize()))
+                return fut.result(timeout=12.0)
+
+        except Exception as e:
+            print(f"[Human Native TTS Error]: {e}")
+            return None
+
 class LocalTTSService:
     @staticmethod
-    def synthesize_speech(text, language=None, preferred_engine='offline'):
+    def synthesize_speech(text, language=None, preferred_engine='human'):
         audio, _ = LocalTTSService.synthesize_speech_with_meta(text, language, preferred_engine)
         return audio
 
     @staticmethod
-    def synthesize_speech_with_meta(text, language=None, preferred_engine='offline'):
+    def synthesize_speech_with_meta(text, language=None, preferred_engine='human'):
         """
-        Synthesize speech into WAV audio bytes 100% offline and locally.
-        Zero external APIs, sub-300ms neural synthesis on Mac CPU.
+        Synthesize speech using Human Native voices (Swara for Hindi, Aarohi for Marathi, Neerja for English).
+        Seamlessly falls back to local Piper neural voices if offline.
         """
         global _tts_cache
         try:
@@ -458,24 +497,31 @@ class LocalTTSService:
 
             active_lang = language if (language in ['hi', 'mr', 'en', 'mixed', 'hinglish']) else detect_voice_language(clean_text)
 
-            cache_key = f"piper:{active_lang}:{clean_text}"
+            cache_key = f"human:{active_lang}:{clean_text}"
             if cache_key in _tts_cache:
                 cached_data, engine_name = _tts_cache[cache_key]
-                if len(cached_data) >= 1000:
+                if len(cached_data) >= 500:
                     return cached_data, engine_name
                 else:
                     del _tts_cache[cache_key]
 
-            # Primary: 100% Offline Local Neural TTS (Priyamvada female Indian voice / Pratham / Lessac)
-            # Sub-300ms latency, zero APIs, zero cost
-            audio = PiperTTSService.synthesize(clean_text, lang=active_lang)
-            if audio and len(audio) > 500:
+            # Tier 1: 100% Authentic Human Native Voice (Swara, Aarohi, Neerja)
+            human_audio = EdgeNeuralTTSService.synthesize(clean_text, lang=active_lang)
+            if human_audio and len(human_audio) > 500:
                 if len(_tts_cache) >= _MAX_CACHE_SIZE:
                     _tts_cache.pop(next(iter(_tts_cache)))
-                _tts_cache[cache_key] = (audio, 'piper-neural')
-                return audio, 'piper-neural'
+                _tts_cache[cache_key] = (human_audio, 'human-native')
+                return human_audio, 'human-native'
 
-            # Optional fallback to Bodhan if explicitly requested
+            # Tier 2: Offline Piper Neural Engine Fallback (Priyamvada / Lessac)
+            piper_audio = PiperTTSService.synthesize(clean_text, lang=active_lang)
+            if piper_audio and len(piper_audio) > 500:
+                if len(_tts_cache) >= _MAX_CACHE_SIZE:
+                    _tts_cache.pop(next(iter(_tts_cache)))
+                _tts_cache[cache_key] = (piper_audio, 'piper-neural')
+                return piper_audio, 'piper-neural'
+
+            # Tier 3: Optional fallback to Bodhan if explicitly requested
             if preferred_engine == 'bodhan':
                 indic_audio = IndicSpeakTTSService.synthesize(clean_text, lang=active_lang)
                 if indic_audio and len(indic_audio) > 500:

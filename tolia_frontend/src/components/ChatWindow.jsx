@@ -765,24 +765,16 @@ export default function ChatWindow({ activeRole, activeLang = 'auto', setLang })
       const played = await playAudioBufferWebAudio(arrayBuffer, targetIdx, onEnd);
       if (played) return;
 
-      // Tier 2: HTML5 Audio Blob
-      const blobUrl = URL.createObjectURL(new Blob([arrayBuffer], { type: 'audio/wav' }));
+      // Tier 2: HTML5 Audio Blob (supports both WAV and MP3)
+      const isWav = arrayBuffer.byteLength >= 4 && new Uint8Array(arrayBuffer, 0, 4).every((v, i) => v === [0x52, 0x49, 0x46, 0x46][i]);
+      const blobUrl = URL.createObjectURL(new Blob([arrayBuffer], { type: isWav ? 'audio/wav' : 'audio/mpeg' }));
       const html5Played = await playBlobHtml5(blobUrl, targetIdx, onEnd);
       if (html5Played) return;
 
-      // Tier 3: Browser Web Speech API (only for non-bodhan engines)
-      if (voiceEngine !== 'bodhan') {
-        playWithWebSpeech(text, targetIdx, langParam, onEnd);
-      } else if (onEnd) {
-        onEnd();
-      }
+      if (onEnd) onEnd();
     } catch (err) {
       console.warn("Audio synthesis/playback notice:", err);
-      if (voiceEngine !== 'bodhan') {
-        playWithWebSpeech(text, targetIdx, langParam, onEnd);
-      } else if (onEnd) {
-        onEnd();
-      }
+      if (onEnd) onEnd();
     }
   };
 
@@ -839,7 +831,8 @@ export default function ChatWindow({ activeRole, activeLang = 'auto', setLang })
           const arrayBuffer = await res.arrayBuffer();
           if (arrayBuffer && arrayBuffer.byteLength > 100) {
             item.arrayBuffer = arrayBuffer;
-            item.blobUrl = URL.createObjectURL(new Blob([arrayBuffer], { type: 'audio/wav' }));
+            const isWav = arrayBuffer.byteLength >= 4 && new Uint8Array(arrayBuffer, 0, 4).every((v, i) => v === [0x52, 0x49, 0x46, 0x46][i]);
+            item.blobUrl = URL.createObjectURL(new Blob([arrayBuffer], { type: isWav ? 'audio/wav' : 'audio/mpeg' }));
           }
         }
       } catch (e) {
@@ -900,14 +893,8 @@ export default function ChatWindow({ activeRole, activeLang = 'auto', setLang })
       }
     }
 
-    // If voiceEngine is bodhan, NEVER fall back to browser Web Speech - strictly advance queue
-    if (voiceEngine === 'bodhan') {
-      advanceQueue();
-      return;
-    }
-
-    // Tier 3: Browser Web Speech API fallback (only for non-bodhan engines)
-    playWithWebSpeech(nextItem.text, targetIdx, nextItem.lang || 'auto', advanceQueue);
+    // Never fall back to robotic browser Web Speech - strictly advance queue
+    advanceQueue();
   };
 
   const normalizeForSpeech = (text) => {
