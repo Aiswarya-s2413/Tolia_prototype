@@ -1459,12 +1459,12 @@ export default function ChatWindow({ activeRole, activeLang = 'auto', setLang })
               <span>{autoSpeak ? 'Auto Voice: ON' : 'Auto Voice: OFF'}</span>
             </button>
 
-            {/* Dedicated Bodhan AI Engine Badge */}
-            <div className="flex items-center gap-1.5 bg-slate-900/90 border border-indigo-500/40 rounded-xl px-3 py-1.5 text-xs shadow-sm" title="Dedicated Bodhan AI Indic-Speak (3.8B Llama-3 Local Neural Engine)">
-              <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
-              <span className="text-indigo-300 font-bold text-[11px] tracking-wide flex items-center gap-1">
-                <span>🧠 Bodhan AI</span>
-                <span className="text-[10px] text-indigo-400/80 font-medium">(Indic-Speak)</span>
+            {/* Native Human Voice Engine Badge */}
+            <div className="flex items-center gap-1.5 bg-slate-900/90 border border-cyan-500/40 rounded-xl px-3 py-1.5 text-xs shadow-sm" title="Human Native Voice Engine (Swara • Aarohi • Neerja)">
+              <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span className="text-cyan-300 font-bold text-[11px] tracking-wide flex items-center gap-1">
+                <span>🎙️ Human Voice</span>
+                <span className="text-[10px] text-cyan-400/80 font-medium">(Swara • Aarohi • Neerja)</span>
               </span>
             </div>
 
