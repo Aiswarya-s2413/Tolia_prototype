@@ -112,3 +112,6 @@ OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen3.8:latest')
 VEXYL_STT_URL = os.getenv('VEXYL_STT_URL', 'http://localhost:8001')
 VEXYL_STT_API_KEY = os.getenv('VEXYL_STT_API_KEY', '')
 
+# Remote Bodhan AI TTS Server settings (e.g., RunPod GPU endpoint)
+BODHAN_TTS_URL = os.getenv('BODHAN_TTS_URL', '')
+

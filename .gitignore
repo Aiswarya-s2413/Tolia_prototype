@@ -12,6 +12,11 @@ db.sqlite3
 db.sqlite3-journal
 *.onnx
 tolia_backend/piper_models/*.onnx
+tolia_backend/indic_speak_models/
+*.safetensors
+*.pt
+*.bin
+*.wav
 
 # Node / Frontend
 node_modules/

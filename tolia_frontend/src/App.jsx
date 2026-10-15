@@ -6,6 +6,7 @@ import { ShieldCheck } from 'lucide-react';
 
 export default function App() {
   const [activeRole, setActiveRole] = useState('CEO'); // 'CEO' | 'QC'
+  const [activeLang, setActiveLang] = useState('auto'); // 'auto' | 'en' | 'hi' | 'mr'
 
   return (
     <div className="min-h-screen bg-[#0b0f17] text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
@@ -18,13 +19,15 @@ export default function App() {
       <Header
         activeRole={activeRole}
         setRole={setActiveRole}
+        activeLang={activeLang}
+        setLang={setActiveLang}
       />
 
       {/* Main Container Viewport - Voice AI Assistant */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
         <div className="space-y-6">
           <RoleSwitcher activeRole={activeRole} setRole={setActiveRole} />
-          <ChatWindow activeRole={activeRole} />
+          <ChatWindow activeRole={activeRole} activeLang={activeLang} setLang={setActiveLang} />
         </div>
       </main>
 

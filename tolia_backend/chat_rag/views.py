@@ -179,27 +179,30 @@ class VoiceSynthesizeView(APIView):
     def get(self, request):
         text = request.query_params.get('text', '').strip()
         language = request.query_params.get('lang', None)
+        engine = request.query_params.get('engine', 'auto')
         if language in ['auto', '', 'undefined', 'null']:
             language = None
-        return self._generate_audio(text, language)
+        return self._generate_audio(text, language, engine)
 
     def post(self, request):
         text = request.data.get('text', '').strip()
         language = request.data.get('lang', None)
+        engine = request.data.get('engine', 'auto')
         if language in ['auto', '', 'undefined', 'null']:
             language = None
-        return self._generate_audio(text, language)
+        return self._generate_audio(text, language, engine)
 
-    def _generate_audio(self, text, language):
+    def _generate_audio(self, text, language, engine='auto'):
         if not text:
             return HttpResponse(b"", content_type="audio/mpeg", status=400)
         from .voice_service import LocalTTSService
-        audio_bytes = LocalTTSService.synthesize_speech(text, language=language)
+        audio_bytes, used_engine = LocalTTSService.synthesize_speech_with_meta(text, language=language, preferred_engine=engine)
         if audio_bytes:
             content_type = "audio/wav" if audio_bytes.startswith(b"RIFF") else "audio/mpeg"
             response = HttpResponse(audio_bytes, content_type=content_type)
             response['Content-Length'] = len(audio_bytes)
             response['Accept-Ranges'] = 'bytes'
+            response['X-TTS-Engine'] = used_engine
             return response
         return HttpResponse(b"", content_type="audio/mpeg", status=500)
 

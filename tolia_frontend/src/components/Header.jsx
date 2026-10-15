@@ -12,7 +12,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 
-export default function Header({ activeTab, setActiveTab, activeRole, setRole, lang, setLang }) {
+export default function Header({ activeTab, setActiveTab, activeRole, setRole, lang, setLang, activeLang }) {
   const getNavTitle = (key) => {
     switch (key) {
       case 'chat':
@@ -92,11 +92,30 @@ export default function Header({ activeTab, setActiveTab, activeRole, setRole, l
               </button>
             </div>
 
-            {/* Dynamic Auto-Detect Multi-Language Badge */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold text-slate-300 shadow-sm">
-              <Globe className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-              <span className="text-cyan-300 font-bold">Auto-Detect</span>
-              <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">(EN • HI • MR)</span>
+            {/* Dynamic Multi-Language Selector */}
+            <div className="flex items-center p-1 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-semibold text-slate-300 shadow-sm gap-1">
+              <Globe className="w-3.5 h-3.5 text-cyan-400 ml-1.5 shrink-0" />
+              {[
+                { id: 'auto', label: 'Auto' },
+                { id: 'en', label: 'EN' },
+                { id: 'hi', label: 'हिन्दी' },
+                { id: 'mr', label: 'मराठी' }
+              ].map((opt) => {
+                const isSelected = (activeLang || lang || 'auto') === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => setLang && setLang(opt.id)}
+                    className={`px-2 py-1 rounded-lg text-xs font-medium transition-all ${
+                      isSelected
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
 
           </div>

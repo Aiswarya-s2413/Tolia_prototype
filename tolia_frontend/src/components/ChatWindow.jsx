@@ -25,7 +25,7 @@ import {
   Sliders
 } from 'lucide-react';
 
-export default function ChatWindow({ activeRole }) {
+export default function ChatWindow({ activeRole, activeLang = 'auto', setLang }) {
   const getInitialWelcomeMessage = () => ({
     sender: 'bot',
     text: 'Hello! / नमस्कार! I am your **Tolia Voice-First AI Assistant**.\n\nSpeak or type naturally in **English**, **हिंदी (Hindi)**, or **मराठी (Marathi)** — I dynamically detect and respond in your language:\n- *"What are the emergency shutdown steps for the Blast Furnace?"*\n- *"ब्लास्ट फर्नेस का सुरक्षा तापमान और आपातकालीन नियम क्या हैं?"*\n- *"रोलिंग मिल गिअरबॉक्स ऑइल आणि हायड्रोलिक दाब SOP सांगा"*\n- *"संयंत्र में अनिवार्य पीपीई किट नियम क्या हैं?"*',
@@ -35,18 +35,24 @@ export default function ChatWindow({ activeRole }) {
   });
 
   const [messages, setMessages] = useState([getInitialWelcomeMessage()]);
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   const [inputQuery, setInputQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true); // Voice is primary, so default to ON
   const [speakingIndex, setSpeakingIndex] = useState(null);
   const [isVoicePaused, setIsVoicePaused] = useState(false);
-  const [activeAudioEngine, setActiveAudioEngine] = useState(null); // 'html5' | 'webspeech' | null
+  const [activeAudioEngine, setActiveAudioEngine] = useState(null); // 'webaudio' | 'html5' | 'speechSynthesis' | null
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [expandedSourceIndex, setExpandedSourceIndex] = useState(null);
   const [showTextInput, setShowTextInput] = useState(false);
-  const [wsConnected, setWsConnected] = useState(false); // Live WebSocket status
   const [currentDetectedLang, setCurrentDetectedLang] = useState('en');
+  const [voiceEngine, setVoiceEngine] = useState('piper'); // 100% Offline Neural TTS (Priyamvada / Lessac)
 
   const messagesContainerRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -279,7 +285,7 @@ export default function ChatWindow({ activeRole }) {
         if (audioBlob.size > 80) {
           const formData = new FormData();
           formData.append('audio', audioBlob, 'audio.webm');
-          formData.append('language', currentDetectedLang || 'auto');
+          formData.append('language', activeLang || 'auto');
 
           try {
             setLiveTranscript('Processing voice input...');
@@ -291,7 +297,7 @@ export default function ChatWindow({ activeRole }) {
             const data = await res.json();
             setIsLoading(false);
             if (data && data.text && data.text.trim()) {
-              const detectedLanguage = data.language || currentDetectedLang || 'en';
+              const detectedLanguage = (activeLang && activeLang !== 'auto') ? activeLang : (data.language || 'auto');
               setCurrentDetectedLang(detectedLanguage);
               setInputQuery(data.text);
               setLiveTranscript('');
@@ -397,6 +403,7 @@ export default function ChatWindow({ activeRole }) {
         speechRecognitionRef.current = recognition;
 
         let finalTranscript = '';
+        let lastSpokenText = '';
 
         recognition.onstart = () => {
           setIsListening(true);
@@ -415,6 +422,7 @@ export default function ChatWindow({ activeRole }) {
           }
           const currentText = (finalTranscript + ' ' + interimTranscript).trim();
           if (currentText) {
+            lastSpokenText = currentText;
             speechDetectedRef.current = true;
             setLiveTranscript(currentText);
             setInputQuery(currentText);
@@ -434,10 +442,10 @@ export default function ChatWindow({ activeRole }) {
         recognition.onend = () => {
           setIsListening(false);
           speechRecognitionRef.current = null;
-          const queryToSubmit = finalTranscript.trim();
+          const queryToSubmit = (finalTranscript.trim() || lastSpokenText.trim());
           if (queryToSubmit) {
             setLiveTranscript('');
-            handleSendMessage(queryToSubmit, currentDetectedLang);
+            handleSendMessage(queryToSubmit, 'auto');
           } else {
             setLiveTranscript('');
           }
@@ -507,19 +515,58 @@ export default function ChatWindow({ activeRole }) {
         if (!window._sharedAudioCtx) {
           window._sharedAudioCtx = new AudioCtx();
         }
-        if (window._sharedAudioCtx.state === 'suspended') {
-          window._sharedAudioCtx.resume();
+        const ctx = window._sharedAudioCtx;
+        if (ctx.state === 'suspended') {
+          ctx.resume().catch(() => {});
         }
+        // Play an imperceptible 1-sample silent sound synchronously to trigger user-activation flag
+        try {
+          const silentBuffer = ctx.createBuffer(1, 1, 22050);
+          const silentSource = ctx.createBufferSource();
+          silentSource.buffer = silentBuffer;
+          silentSource.connect(ctx.destination);
+          silentSource.start(0);
+        } catch (e) {}
+        initAudioKeepAlive(ctx);
       }
-      if (!window._audioUnlocked) {
-        const dummyAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA');
-        dummyAudio.play().then(() => {
-          dummyAudio.pause();
-          window._audioUnlocked = true;
-        }).catch(() => {});
+      // Also prime an HTML5 audio element so browser policy permits programmatic play
+      if (!window._dummyAudio) {
+        window._dummyAudio = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
       }
+      window._dummyAudio.play().then(() => {
+        window._dummyAudio.pause();
+      }).catch(() => {});
     } catch (e) {}
   };
+
+  const initAudioKeepAlive = (ctx) => {
+    if (!window._audioKeepAlive && ctx) {
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        gain.gain.value = 0.0;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        window._audioKeepAlive = osc;
+      } catch (e) {}
+    }
+  };
+
+  // Global user interaction listener to proactively unlock browser audio policies
+  useEffect(() => {
+    const handleInteraction = () => {
+      unlockAudioContext();
+    };
+    window.addEventListener('click', handleInteraction, { capture: true, passive: true });
+    window.addEventListener('keydown', handleInteraction, { capture: true, passive: true });
+    window.addEventListener('touchstart', handleInteraction, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('click', handleInteraction, { capture: true });
+      window.removeEventListener('keydown', handleInteraction, { capture: true });
+      window.removeEventListener('touchstart', handleInteraction, { capture: true });
+    };
+  }, []);
 
   const currentSourceNodeRef = useRef(null);
 
@@ -578,60 +625,96 @@ export default function ChatWindow({ activeRole }) {
     setActiveAudioEngine(null);
   };
 
-  // High-Performance Audio Playback Engine (Web Audio API -> HTML5 Audio -> Web Speech API)
-  const playAudioItem = async (text, targetIdx, langParam, onEnd) => {
-    if (!text || !text.trim()) {
-      if (onEnd) onEnd();
-      return;
-    }
-
-    // Level 1: Web Audio API (direct audio hardware output)
+  // Helper to play raw ArrayBuffer via unlocked Web Audio API (Autoplay-immune)
+  const playAudioBufferWebAudio = async (arrayBuffer, targetIdx, onEnd) => {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!window._sharedAudioCtx && AudioCtx) {
         window._sharedAudioCtx = new AudioCtx();
       }
       const ctx = window._sharedAudioCtx;
-      if (ctx) {
-        if (ctx.state === 'suspended') {
-          await ctx.resume();
-        }
+      if (!ctx) return false;
 
-        const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langParam || 'auto')}`;
-        const res = await fetch(audioUrl);
-        if (res.ok) {
-          const arrayBuffer = await res.arrayBuffer();
-          if (arrayBuffer.byteLength > 100) {
-            const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
-            const source = ctx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(ctx.destination);
-            currentSourceNodeRef.current = source;
-
-            setActiveAudioEngine('webaudio');
-            setSpeakingIndex(targetIdx);
-            setIsVoicePaused(false);
-
-            source.onended = () => {
-              currentSourceNodeRef.current = null;
-              if (onEnd) onEnd();
-            };
-
-            source.start(0);
-            return;
-          }
-        }
+      if (ctx.state === 'suspended') {
+        try { await ctx.resume(); } catch (e) {}
       }
-    } catch (err) {
-      console.warn("Web Audio API stream notice, trying HTML5 Audio:", err);
-    }
 
-    // Level 2: HTML5 Audio Element Fallback
+      if (ctx.state !== 'running') {
+        console.warn("[Voice Player] Web Audio context is not running (" + ctx.state + "). Falling back to HTML5 Audio / Web Speech.");
+        return false;
+      }
+
+      // decodeAudioData consumes the arrayBuffer, so copy it with slice(0)
+      const decodedBuffer = await new Promise((resolve, reject) => {
+        ctx.decodeAudioData(arrayBuffer.slice(0), resolve, reject);
+      });
+
+      if (!decodedBuffer || decodedBuffer.duration <= 0.05) {
+        return false;
+      }
+
+      const source = ctx.createBufferSource();
+      source.buffer = decodedBuffer;
+      source.connect(ctx.destination);
+      currentSourceNodeRef.current = source;
+
+      setActiveAudioEngine('webaudio');
+      setSpeakingIndex(targetIdx);
+      setIsVoicePaused(false);
+
+      let endedCalled = false;
+      const finishPlayback = () => {
+        if (endedCalled) return;
+        endedCalled = true;
+        if (currentSourceNodeRef.current === source) {
+          currentSourceNodeRef.current = null;
+        }
+        if (onEnd) onEnd();
+      };
+
+      source.onended = finishPlayback;
+
+      // Fail-safe safety timer: guarantees the queue advances even if onended is delayed
+      const maxDurationMs = Math.ceil(decodedBuffer.duration * 1000) + 1200;
+      setTimeout(finishPlayback, maxDurationMs);
+
+      source.start(0);
+
+      // If AudioContext was suspended, wake it up on next tap/interaction
+      if (ctx.state === 'suspended') {
+        const resumeOnTap = () => {
+          ctx.resume();
+          window.removeEventListener('click', resumeOnTap, true);
+          window.removeEventListener('keydown', resumeOnTap, true);
+          window.removeEventListener('touchstart', resumeOnTap, true);
+        };
+        window.addEventListener('click', resumeOnTap, { capture: true, once: true });
+        window.addEventListener('keydown', resumeOnTap, { capture: true, once: true });
+        window.addEventListener('touchstart', resumeOnTap, { capture: true, once: true });
+      }
+
+      return true;
+    } catch (err) {
+      console.warn("Web Audio decode/playback notice, trying HTML5 Audio fallback:", err);
+      return false;
+    }
+  };
+
+  // Helper to play via HTML5 Audio Blob Element
+  const playBlobHtml5 = async (blobUrl, targetIdx, onEnd) => {
     try {
-      const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langParam || 'auto')}`;
-      const audio = new Audio(audioUrl);
+      const audio = new Audio(blobUrl);
       audio.volume = 1.0;
       currentAudioRef.current = audio;
+
+      let endedCalled = false;
+      const finishPlayback = () => {
+        if (endedCalled) return;
+        endedCalled = true;
+        URL.revokeObjectURL(blobUrl);
+        currentAudioRef.current = null;
+        if (onEnd) onEnd();
+      };
 
       audio.onplay = () => {
         setActiveAudioEngine('html5');
@@ -639,40 +722,81 @@ export default function ChatWindow({ activeRole }) {
         setIsVoicePaused(false);
       };
 
-      audio.onended = () => {
-        currentAudioRef.current = null;
-        if (onEnd) onEnd();
-      };
-
-      audio.onerror = () => {
-        playWithWebSpeech(text, targetIdx, langParam, onEnd);
-      };
+      audio.onended = finishPlayback;
+      audio.onerror = finishPlayback;
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
-        playPromise.catch((err) => {
-          if (err.name !== 'AbortError') {
-            playWithWebSpeech(text, targetIdx, langParam, onEnd);
-          }
-        });
+        await playPromise;
       }
-      return;
+
+      audio.onloadedmetadata = () => {
+        if (audio.duration && !isNaN(audio.duration)) {
+          setTimeout(finishPlayback, Math.ceil(audio.duration * 1000) + 1500);
+        }
+      };
+
+      return true;
     } catch (err) {
-      console.warn("HTML5 audio playback error, falling back to Web Speech:", err);
+      console.warn("HTML5 audio playback blocked or error:", err);
+      return false;
+    }
+  };
+
+  // High-Performance Audio Playback Engine (Web Audio -> HTML5 Audio Blob -> Web Speech)
+  const playAudioItem = async (text, targetIdx, langParam, onEnd) => {
+    if (!text || !text.trim()) {
+      if (onEnd) onEnd();
+      return;
     }
 
-    // Level 3: Browser Web Speech API with High-End Neural Voice
-    playWithWebSpeech(text, targetIdx, langParam, onEnd);
+    unlockAudioContext();
+    setSpeakingIndex(targetIdx);
+
+    try {
+      const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(langParam || 'auto')}&engine=${encodeURIComponent(voiceEngine || 'auto')}`;
+      const res = await fetch(audioUrl);
+      if (!res.ok) throw new Error('TTS network response error');
+
+      const arrayBuffer = await res.arrayBuffer();
+      if (!arrayBuffer || arrayBuffer.byteLength < 1000) throw new Error('Audio payload too short');
+
+      // Tier 1: Web Audio API (Autoplay-immune)
+      const played = await playAudioBufferWebAudio(arrayBuffer, targetIdx, onEnd);
+      if (played) return;
+
+      // Tier 2: HTML5 Audio Blob
+      const blobUrl = URL.createObjectURL(new Blob([arrayBuffer], { type: 'audio/wav' }));
+      const html5Played = await playBlobHtml5(blobUrl, targetIdx, onEnd);
+      if (html5Played) return;
+
+      // Tier 3: Browser Web Speech API (only for non-bodhan engines)
+      if (voiceEngine !== 'bodhan') {
+        playWithWebSpeech(text, targetIdx, langParam, onEnd);
+      } else if (onEnd) {
+        onEnd();
+      }
+    } catch (err) {
+      console.warn("Audio synthesis/playback notice:", err);
+      if (voiceEngine !== 'bodhan') {
+        playWithWebSpeech(text, targetIdx, langParam, onEnd);
+      } else if (onEnd) {
+        onEnd();
+      }
+    }
   };
 
   const playWithWebSpeech = (cleanText, targetIdx, langParam, onEnd) => {
     if ('speechSynthesis' in window) {
       try {
         window.speechSynthesis.cancel();
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
         const utterance = new SpeechSynthesisUtterance(cleanText);
         const langCode = (langParam === 'hi' || langParam === 'mixed' || langParam === 'hinglish') ? 'hi-IN' : langParam === 'mr' ? 'mr-IN' : 'en-US';
         utterance.lang = langCode;
-        utterance.rate = 0.93; // Calibrated for natural human conversation speed
+        utterance.rate = 1.0;
         utterance.pitch = 1.0;
 
         const bestVoice = getBestVoice(langParam);
@@ -704,22 +828,18 @@ export default function ChatWindow({ activeRole }) {
     }
   };
 
-  // Pre-fetch and pre-decode sentence audio buffer in background (0ms gap between sentences)
+  // Pre-fetch sentence audio in background (0ms gap between sentences)
   const prefetchAudioBuffer = async (item) => {
-    if (item.audioBuffer || item.fetchPromise) return item.fetchPromise;
+    if (!item || item.arrayBuffer || item.fetchPromise) return item?.fetchPromise;
     item.fetchPromise = (async () => {
       try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        if (!window._sharedAudioCtx && AudioCtx) {
-          window._sharedAudioCtx = new AudioCtx();
-        }
-        const ctx = window._sharedAudioCtx;
-        const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(item.text)}&lang=${encodeURIComponent(item.lang || 'auto')}`;
+        const audioUrl = `/api/voice/synthesize/?text=${encodeURIComponent(item.text)}&lang=${encodeURIComponent(item.lang || 'auto')}&engine=${encodeURIComponent(voiceEngine || 'auto')}`;
         const res = await fetch(audioUrl);
         if (res.ok) {
           const arrayBuffer = await res.arrayBuffer();
-          if (arrayBuffer.byteLength > 100 && ctx) {
-            item.audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+          if (arrayBuffer && arrayBuffer.byteLength > 100) {
+            item.arrayBuffer = arrayBuffer;
+            item.blobUrl = URL.createObjectURL(new Blob([arrayBuffer], { type: 'audio/wav' }));
           }
         }
       } catch (e) {
@@ -747,57 +867,61 @@ export default function ChatWindow({ activeRole }) {
       return;
     }
 
-    // Ensure audio buffer is fetched/decoded
-    if (!nextItem.audioBuffer && nextItem.fetchPromise) {
+    // 1. Ensure audio fetch is started for the current item if not already
+    if (!nextItem.arrayBuffer && !nextItem.fetchPromise) {
+      prefetchAudioBuffer(nextItem);
+    }
+
+    // 2. Wait for current item's audio to arrive
+    if (!nextItem.arrayBuffer && nextItem.fetchPromise) {
       await nextItem.fetchPromise;
     }
 
-    // If Web Audio buffer is ready -> PLAY INSTANTLY WITH ZERO GAP (0.00ms latency)
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!window._sharedAudioCtx && AudioCtx) {
-      window._sharedAudioCtx = new AudioCtx();
-    }
-    const ctx = window._sharedAudioCtx;
-    if (ctx && ctx.state === 'suspended') {
-      try { await ctx.resume(); } catch (e) {}
+    // 3. Pipeline depth = 1: Prefetch the NEXT sentence in the queue while this one plays
+    if (audioQueueRef.current.length > 0) {
+      prefetchAudioBuffer(audioQueueRef.current[0]);
     }
 
-    if (ctx && nextItem.audioBuffer) {
-      try {
-        const source = ctx.createBufferSource();
-        source.buffer = nextItem.audioBuffer;
-        source.connect(ctx.destination);
-        currentSourceNodeRef.current = source;
+    const advanceQueue = () => {
+      if (nextItem.blobUrl) URL.revokeObjectURL(nextItem.blobUrl);
+      if (!isPlayingQueueRef.current) return;
+      playNextInQueue(targetIdx);
+    };
 
-        setActiveAudioEngine('webaudio');
-        setSpeakingIndex(targetIdx);
-        setIsVoicePaused(false);
+    if (nextItem.arrayBuffer) {
+      // Tier 1: Try Web Audio API (autoplay-immune)
+      const played = await playAudioBufferWebAudio(nextItem.arrayBuffer, targetIdx, advanceQueue);
+      if (played) return;
 
-        source.onended = () => {
-          currentSourceNodeRef.current = null;
-          playNextInQueue(targetIdx);
-        };
-
-        source.start(0);
-        return;
-      } catch (err) {
-        console.warn("Buffer playback notice, falling back to direct play:", err);
+      // Tier 2: Try HTML5 Audio Blob
+      if (nextItem.blobUrl) {
+        const html5Played = await playBlobHtml5(nextItem.blobUrl, targetIdx, advanceQueue);
+        if (html5Played) return;
       }
     }
 
-    // Fallback if buffer was not available
-    playAudioItem(nextItem.text, targetIdx, nextItem.lang || 'auto', () => {
-      playNextInQueue(targetIdx);
-    });
+    // If voiceEngine is bodhan, NEVER fall back to browser Web Speech - strictly advance queue
+    if (voiceEngine === 'bodhan') {
+      advanceQueue();
+      return;
+    }
+
+    // Tier 3: Browser Web Speech API fallback (only for non-bodhan engines)
+    playWithWebSpeech(nextItem.text, targetIdx, nextItem.lang || 'auto', advanceQueue);
   };
 
   const normalizeForSpeech = (text) => {
     if (!text) return "";
     return text
       .replace(/[*_#`~]/g, '')
-      .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜/g, '')
+      .replace(/⚠️|💡|📌|▶️|✅|🛡️|🏢|👥|📋|📜•/g, '')
       .replace(/\[(.*?)\]\(.*?\)/g, '$1')
       .replace(/https?:\/\/\S+/g, '')
+      .replace(/^\s*[-•*]\s*/gm, '')
+      .replace(/^\s*\d+[\.\)]\s*/gm, '')
+      .replace(/\bSOPs?\b/gi, 'standard operating procedures')
+      .replace(/\bPPE\b/gi, 'personal protective equipment')
+      .replace(/\bAI\b/g, 'A I')
       .replace(/\bmm\/s\b/gi, 'millimeter per second')
       .replace(/\bm\/s\b/gi, 'meter per second')
       .replace(/\bkm\/h\b/gi, 'kilometer per hour')
@@ -811,16 +935,18 @@ export default function ChatWindow({ activeRole }) {
       .replace(/\b(\d+)\s*dB\+?\b/gi, '$1 decibels')
       .replace(/\b([A-Za-z])-(\d+)\b/g, '$1 $2')
       .replace(/(\w+)\/(\w+)/g, '$1 or $2')
+      .replace(/[\(\)]/g, ' ')
       .replace(/\//g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   };
 
-  // Queue sentence chunks for sub-second TTS playback with instant background pre-buffering
+  // Queue sentence chunks for sub-second TTS playback with controlled background pre-buffering
   const queueSentenceForTTS = (sentenceText, msgIndex, targetLang) => {
     const cleanText = normalizeForSpeech(sentenceText);
 
-    if (!cleanText || cleanText.length < 3) return;
+    // Skip short fragments or bullet numbers (e.g. "1.", "How I can help you: 1")
+    if (!cleanText || cleanText.length < 4 || !/[a-zA-Z\u0900-\u097F]{2,}/.test(cleanText)) return;
 
     const targetIdx = msgIndex !== undefined && msgIndex !== null ? msgIndex : getLatestBotMessageIndex();
     const langParam = targetLang || 'auto';
@@ -828,23 +954,24 @@ export default function ChatWindow({ activeRole }) {
     const queueItem = {
       text: cleanText,
       lang: langParam,
-      audioBuffer: null,
+      arrayBuffer: null,
+      blobUrl: null,
       fetchPromise: null
     };
-
-    // Immediately trigger background audio pre-buffering in parallel
-    prefetchAudioBuffer(queueItem);
 
     audioQueueRef.current.push(queueItem);
 
     if (!isPlayingQueueRef.current) {
       playNextInQueue(targetIdx);
+    } else if (audioQueueRef.current.length === 1) {
+      // Pipelined pre-buffering: only prefetch the immediate next item while item 0 is playing
+      prefetchAudioBuffer(queueItem);
     }
   };
 
   // Pause active voice audio
   const pauseVoice = () => {
-    if (window._sharedAudioCtx && window._sharedAudioCtx.state === 'running') {
+    if (activeAudioEngine === 'webaudio' && window._sharedAudioCtx && window._sharedAudioCtx.state === 'running') {
       window._sharedAudioCtx.suspend();
       setIsVoicePaused(true);
     } else if (activeAudioEngine === 'html5' && currentAudioRef.current) {
@@ -858,7 +985,7 @@ export default function ChatWindow({ activeRole }) {
 
   // Resume paused voice audio
   const resumeVoice = () => {
-    if (window._sharedAudioCtx && window._sharedAudioCtx.state === 'suspended') {
+    if (activeAudioEngine === 'webaudio' && window._sharedAudioCtx && window._sharedAudioCtx.state === 'suspended') {
       window._sharedAudioCtx.resume();
       setIsVoicePaused(false);
     } else if (activeAudioEngine === 'html5' && currentAudioRef.current) {
@@ -872,10 +999,15 @@ export default function ChatWindow({ activeRole }) {
     }
   };
 
-  // Get latest bot response index
-  const getLatestBotMessageIndex = () => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].sender === 'bot') return i;
+  // Get latest bot response index dynamically from latest ref
+  const getLatestBotMessageIndex = (specificMsgId) => {
+    const msgs = messagesRef.current || messages;
+    if (specificMsgId) {
+      const foundIdx = msgs.findIndex(m => m.id === specificMsgId);
+      if (foundIdx !== -1) return foundIdx;
+    }
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].sender === 'bot') return i;
     }
     return -1;
   };
@@ -900,11 +1032,35 @@ export default function ChatWindow({ activeRole }) {
     }
 
     const targetIdx = index !== undefined && index !== null && index >= 0 ? index : getLatestBotMessageIndex();
-    const langParam = targetLang || (messages[targetIdx]?.language) || 'auto';
+    const langParam = (activeLang && activeLang !== 'auto') ? activeLang : (targetLang || (messages[targetIdx]?.language) || 'auto');
 
-    playAudioItem(cleanText, targetIdx, langParam, () => {
-      stopVoice();
-    });
+    setSpeakingIndex(targetIdx);
+
+    // Split cleanly into complete instruction sentences
+    const rawLines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const sentences = [];
+    for (const line of rawLines) {
+      const parts = line.split(/(?<=[a-zA-Z\u0900-\u097F]{2}[.!?।])\s+(?=[A-Z\u0900-\u097F])/);
+      for (const p of parts) {
+        const norm = normalizeForSpeech(p);
+        if (norm && norm.length >= 4) {
+          sentences.push(norm);
+        }
+      }
+    }
+
+    if (voiceEngine === 'bodhan') {
+      const fullSpeech = sentences.length > 0 ? sentences.join('. ') : cleanText;
+      queueSentenceForTTS(fullSpeech, targetIdx, langParam);
+    } else if (sentences.length > 0) {
+      sentences.forEach(sentence => {
+        queueSentenceForTTS(sentence, targetIdx, langParam);
+      });
+    } else {
+      playAudioItem(cleanText, targetIdx, langParam, () => {
+        stopVoice();
+      });
+    }
   };
 
   const copyToClipboard = (text, index) => {
@@ -965,7 +1121,7 @@ export default function ChatWindow({ activeRole }) {
         body: JSON.stringify({
           query: query,
           user_role: activeRole,
-          language: forcedLang || 'auto'
+          language: (activeLang && activeLang !== 'auto') ? activeLang : (forcedLang || 'auto')
         }),
         signal: abortController.signal
       });
@@ -1016,7 +1172,7 @@ export default function ChatWindow({ activeRole }) {
               } else if (data.type === 'sentence') {
                 if (autoSpeak && data.text) {
                   hasQueuedAudioRef.current = true;
-                  const currentIdx = getLatestBotMessageIndex();
+                  const currentIdx = getLatestBotMessageIndex(botMsgId);
                   queueSentenceForTTS(data.text, currentIdx >= 0 ? currentIdx : 1, msgLang);
                 }
               } else if (data.type === 'done') {
@@ -1026,7 +1182,7 @@ export default function ChatWindow({ activeRole }) {
                 } : m));
                 // Fallback ONLY if no sentence audio was queued at all during streaming
                 if (autoSpeak && !hasQueuedAudioRef.current && accumulatedText) {
-                  const currentIdx = getLatestBotMessageIndex();
+                  const currentIdx = getLatestBotMessageIndex(botMsgId);
                   speakText(accumulatedText, currentIdx >= 0 ? currentIdx : 1, msgLang);
                 }
               }
@@ -1228,6 +1384,26 @@ export default function ChatWindow({ activeRole }) {
               <Square className="w-3.5 h-3.5 fill-current" />
               <span>Stop</span>
             </button>
+
+            {/* Direct Test Voice Engine Button */}
+            <button
+              onClick={() => {
+                unlockAudioContext();
+                const testPhrases = {
+                  en: "Tolia AI voice online. Instant neural speech active.",
+                  hi: "नमस्ते, टोलिया ए आई आवाज़ प्रणाली पूरी तरह सक्रिय है।",
+                  mr: "नमस्कार, टोलिया ए आय आवाज प्रणाली सुरू आहे."
+                };
+                const lang = currentDetectedLang || 'en';
+                const text = testPhrases[lang] || testPhrases.en;
+                playAudioItem(text, 0, lang);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm bg-gradient-to-r from-cyan-600/30 to-indigo-600/30 hover:from-cyan-500/40 hover:to-indigo-500/40 text-cyan-300 border border-cyan-500/40 hover:border-cyan-400"
+              title="Test Voice Playback Immediately"
+            >
+              <Volume2 className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Test Voice</span>
+            </button>
           </div>
 
           {/* Live Speech Recognition & STT Status Transcript Box */}
@@ -1293,8 +1469,17 @@ export default function ChatWindow({ activeRole }) {
               }`}
             >
               <AudioLines className={`w-3.5 h-3.5 ${autoSpeak ? 'text-cyan-400 animate-pulse' : ''}`} />
-              <span>{autoSpeak ? 'Auto Voice Playback: ON' : 'Auto Voice Playback: OFF'}</span>
+              <span>{autoSpeak ? 'Auto Voice: ON' : 'Auto Voice: OFF'}</span>
             </button>
+
+            {/* Dedicated Bodhan AI Engine Badge */}
+            <div className="flex items-center gap-1.5 bg-slate-900/90 border border-indigo-500/40 rounded-xl px-3 py-1.5 text-xs shadow-sm" title="Dedicated Bodhan AI Indic-Speak (3.8B Llama-3 Local Neural Engine)">
+              <div className="w-2 h-2 rounded-full bg-indigo-400 animate-pulse" />
+              <span className="text-indigo-300 font-bold text-[11px] tracking-wide flex items-center gap-1">
+                <span>🧠 Bodhan AI</span>
+                <span className="text-[10px] text-indigo-400/80 font-medium">(Indic-Speak)</span>
+              </span>
+            </div>
 
             {/* Toggle Manual Text Input Option */}
             <button

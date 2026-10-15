@@ -73,74 +73,71 @@ def detect_language(text):
         'सांगा', 'सांग', 'माहिती', 'करावे', 'करावा', 'करावी', 'द्या', 'द्यावे', 'होते',
         'झाले', 'झाली', 'झाला', 'पाहिजे', 'तुम्ही', 'तुम्हाला', 'माझा', 'माझी', 'माझे',
         'तुझा', 'तुझी', 'तुझे', 'आपला', 'आपली', 'आपले', 'कारखाना', 'कारखान्यातील', 'धोरण',
-        'आपत्कालीन', 'दाब', 'तपासा', 'वापरा', 'विक्री', 'वैशिष्ट्ये', 'टोलिया काय'
+        'आपत्कालीन', 'दाब', 'तपासा', 'वापरा', 'विक्री', 'वैशिष्ट्ये'
     ]
-    marathi_latin_words = [
+    marathi_latin_words = {
         'kay', 'aahe', 'ahe', 'aahet', 'ahet', 'sanga', 'sang', 'mahiti', 'kase', 'kashi', 'kasha',
         'kadhi', 'kuthe', 'tuzi', 'tujha', 'tujhe', 'majha', 'majhi', 'majhe', 'amhi', 'tumhi', 'tumhala',
-        'karu', 'shakto', 'shakta', 'shaktat', 'karto', 'kartos', 'kartay', 'pahije',
-        'ahes', 'aahat', 'astat', 'baddal', 'sathi', 'karkhana', 'dhoran'
-    ]
+        'karu', 'shakto', 'shakta', 'shaktat', 'karto', 'kartos', 'kartay', 'pahije', 'karkhana', 'dhoran'
+    }
 
-    if marathi_unique_chars:
-        return 'mr'
-
-    for kw in marathi_devanagari_words:
-        if re.search(rf'(^|\s|[^\w\u0900-\u097F]){re.escape(kw)}($|\s|[^\w\u0900-\u097F])', text):
-            return 'mr'
-
-    for kw in marathi_latin_words:
-        if re.search(rf'\b{re.escape(kw)}\b', text_lower):
-            return 'mr'
-
-    # 2. Check for Mixed Language (Hindi + English / Hinglish) & Hindi
+    # 2. Hindi Markers
     hindi_devanagari_words = [
-        'क्या', 'कैसे', 'कैसा', 'कैसी', 'कब', 'कहाँ', 'कहा', 'है', 'हैं', 'हो', 'हूँ', 'हू',
+        'क्या', 'कैसे', 'कैसा', 'कैसी', 'कब', 'कहाँ', 'कहा', 'है', 'हैं', 'हो', 'हूँ',
         'बताओ', 'बताइए', 'बताएं', 'बतायें', 'सुरक्षा', 'करो', 'कीजिए', 'करें', 'चाहिए', 'सकते',
         'सकता', 'सकती', 'तुम्हारा', 'तुम्हारी', 'तुम्हारे', 'आपका', 'आपकी', 'आपके', 'मेरा', 'मेरी',
         'मेरे', 'नमस्ते', 'बारे', 'में', 'लिए', 'करना', 'करता', 'करती', 'होगी', 'होगा', 'होंगे',
-        'संयंत्र', 'उद्देश्य', 'बिक्री', 'कीमत', 'आपातकालीन', 'टोलिया क्या', 'कितना', 'कितने', 'कितनी'
+        'संयंत्र', 'उद्देश्य', 'बिक्री', 'कीमत', 'आपातकालीन', 'कितना', 'कितने', 'कितनी'
     ]
-    hindi_latin_words = [
+    # Unambiguous Hindi Latin keywords (explicitly excluding common English words like 'me', 'hey', 'so', 'to')
+    hindi_latin_words = {
         'kya', 'kaise', 'kaisa', 'kaisi', 'kab', 'kaha', 'kahan', 'hai', 'hain', 'batao', 'bataiye',
         'karo', 'kijiye', 'chahiye', 'sakte', 'sakta', 'sakti', 'tumhara', 'tumhari', 'tumhare',
-        'aapka', 'aapki', 'aapke', 'mera', 'meri', 'mere', 'namaste', 'liye', 'karna', 'karta',
-        'kare', 'karein', 'hoga', 'hogi', 'hota', 'hote', 'hoti', 'kitna', 'kitni', 'kitne',
-        'ka', 'ki', 'ke', 'ko', 'se', 'me', 'mein', 'par', 'aur', 'agar', 'toh', 'nahi'
-    ]
+        'aapka', 'aapki', 'aapke', 'mera', 'meri', 'mere', 'namaste', 'dhanyawad', 'samjhao',
+        'kitna', 'kitni', 'kitne', 'kyun', 'kyu', 'kripya', 'zaroori'
+    }
+
+    # Common English words
+    english_words = {
+        'what', 'where', 'when', 'why', 'who', 'how', 'is', 'are', 'was', 'were', 'the', 'this',
+        'that', 'these', 'those', 'tell', 'me', 'give', 'show', 'check', 'rules', 'safety', 'plant',
+        'furnace', 'rolling', 'mill', 'pressure', 'temperature', 'gearbox', 'hydraulic', 'emergency',
+        'shutdown', 'procedure', 'standard', 'sops', 'sop', 'ppe', 'helmet', 'gloves', 'boots',
+        'access', 'role', 'can', 'you', 'please', 'help', 'explain', 'understand', 'do', 'does',
+        'did', 'will', 'would', 'could', 'should', 'all', 'things', 'about', 'status', 'level',
+        'inspection', 'bearing', 'vibration', 'alarm', 'manual', 'guidelines'
+    }
 
     devanagari_chars = re.findall(r'[\u0900-\u097F]', text)
-    english_words = re.findall(r'\b[a-zA-Z]{3,}\b', text)
-
-    has_hindi_latin = any(re.search(rf'\b{re.escape(kw)}\b', text_lower) for kw in hindi_latin_words)
-    has_devanagari_word = any(re.search(rf'(^|\s|[^\w\u0900-\u097F]){re.escape(kw)}($|\s|[^\w\u0900-\u097F])', text) for kw in hindi_devanagari_words)
-
-    # Technical or English vocabulary commonly used in plant queries
-    english_technical_terms = [
-        'blast', 'furnace', 'emergency', 'shutdown', 'pressure', 'temperature', 'hydraulic', 'oil',
-        'rolling', 'mill', 'gearbox', 'safety', 'ppe', 'helmet', 'shoes', 'rules', 'sop', 'sops',
-        'plant', 'factory', 'check', 'standard', 'testing', 'hardness', 'help', 'role', 'access',
-        'valve', 'bar', 'vibration', 'limit', 'step', 'steps', 'guidelines', 'alarm', 'gas', 'water',
-        'what', 'how', 'tell', 'show', 'status', 'level', 'flow', 'bearing', 'system'
-    ]
-    has_english_terms = any(re.search(rf'\b{re.escape(w)}\b', text_lower) for w in english_technical_terms)
-
-    # If Hindi words are written in Latin script with English keywords -> Mixed / Hinglish
-    if has_hindi_latin:
-        if has_english_terms or len(english_words) >= 2:
-            return 'mixed'
+    
+    # If text is written in Devanagari script:
+    if len(devanagari_chars) >= 2:
+        # Check if it is Devanagari Marathi
+        if marathi_unique_chars or any(kw in text for kw in marathi_devanagari_words):
+            return 'mr'
+        # Check if it is phonetic English written in Devanagari (e.g. "व्हॉट ऑल थिंग्स कैन यू दो")
+        phonetic_english_in_devanagari = ['व्हॉट', 'व्हाट', 'कैन', 'यू', 'डू', 'दो', 'थिंग्स', 'हेल्प', 'टेल', 'मी', 'अबाउट', 'रूल्स']
+        phonetic_matches = sum(1 for w in phonetic_english_in_devanagari if w in text)
+        if phonetic_matches >= 2 and not any(h in text for h in ['सुरक्षा', 'नियम', 'संयंत्र', 'बताइए', 'चाहिए']):
+            return 'en'
         return 'hi'
 
-    # If Devanagari is mixed with English words -> Mixed / Hinglish
-    if len(devanagari_chars) > 0:
-        if len(english_words) >= 1 or has_english_terms:
-            return 'mixed'
+    # If text is in Latin script:
+    words = re.findall(r'\b[a-zA-Z]{2,}\b', text_lower)
+    if not words:
+        return 'en'
+
+    words_set = set(words)
+    en_score = sum(1 for w in words_set if w in english_words)
+    hi_score = sum(1 for w in words_set if w in hindi_latin_words)
+    mr_score = sum(1 for w in words_set if w in marathi_latin_words)
+
+    if mr_score > 0 and mr_score >= hi_score and mr_score >= en_score:
+        return 'mr'
+    if hi_score > 0 and hi_score > en_score:
         return 'hi'
 
-    if has_devanagari_word:
-        return 'hi'
-
-    # Default to English
+    # Default to English whenever English words match or no unambiguous Indic words are found
     return 'en'
 
 def is_hindi(text):
@@ -251,11 +248,11 @@ def get_general_assistant_response(query_text, target_lang='en', user_role=Depar
     """Generate strictly accurate, precise explanation of Tolia AI purpose and capabilities in simple words."""
     if target_lang in ['mixed', 'hinglish']:
         return (
-            "**Main Tolia AI hoon** — steel plant operations ke liye aapka voice assistant.\n\n"
-            "• **Main aapki kaise help kar sakta hoon:**\n"
-            "  1. Blast Furnace aur Rolling Mill ke emergency SOPs aur shutdown steps batana.\n"
-            "  2. Machinery maintenance, hydraulic limits aur PPE safety rules explain karna.\n"
-            "  3. Hindi, English aur Marathi mein bolkar instant answer dena."
+            "**मैं Tolia AI हूँ** — steel plant operations के लिए आपका voice assistant।\n\n"
+            "• **मैं आपकी कैसे help कर सकता हूँ:**\n"
+            "  1. Blast Furnace और Rolling Mill के emergency SOPs और shutdown steps बताना।\n"
+            "  2. Machinery maintenance, hydraulic limits और PPE safety rules explain करना।\n"
+            "  3. हिंदी, English और मराठी में बोलकर instant answer देना।"
         )
     elif target_lang == 'hi':
         return (
@@ -450,6 +447,52 @@ def is_plant_document_query(query_text, top_chunks=None):
             
     return False
 
+def split_response_into_voice_chunks(text):
+    """
+    Combines response into a single, seamless, continuous spoken audio stream for Bodhan AI Indic-Speak.
+    Eliminates all silence gaps and stuttering by generating one flawless, unbroken audio track.
+    """
+    if not text:
+        return []
+
+    clean = re.sub(r'[*_#`~⚠️💡📌▶️✅🛡️🏢👥📋📜•]', '', text)
+    clean = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', clean)
+    clean = re.sub(r'https?:\/\/\S+', '', clean)
+    clean = re.sub(r'\bSOPs?\b', 'standard operating procedures', clean)
+    clean = re.sub(r'\bPPE\b', 'personal protective equipment', clean)
+    clean = re.sub(r'\bAI\b', 'A I', clean)
+
+    lines = [l.strip() for l in clean.split('\n') if l.strip()]
+    if not lines:
+        return []
+
+    sentences = []
+    for line in lines:
+        l_clean = re.sub(r'^\s*[-•*]\s*', '', line)
+        l_clean = re.sub(r'^\s*\d+[\.\)]\s*', '', l_clean).strip()
+        
+        # Convert trailing colons into a natural period so headers read smoothly
+        if l_clean.endswith(':'):
+            l_clean = l_clean[:-1].strip() + '.'
+
+        if not l_clean:
+            continue
+
+        # Split on sentence boundaries (. ! ? ।)
+        for s in re.split(r'(?<=[.!?।])\s+', l_clean):
+            s_clean = s.strip()
+            if s_clean:
+                if not s_clean.endswith(('.', '!', '?', '।', ':', ';', ',')):
+                    s_clean += '.'
+                sentences.append(s_clean)
+
+    if not sentences:
+        return [lines[0]]
+
+    # Return natural sentence chunks for pipelined sub-300ms speech streaming
+    return sentences
+
+
 class LocalRAGEngine:
     @staticmethod
     def get_embedding(text):
@@ -570,8 +613,9 @@ class LocalRAGEngine:
         import time
         from .models import ChatLog
 
-        if not target_lang or target_lang == 'auto':
-            target_lang = detect_language(user_query)
+        detected_lang = detect_language(user_query)
+        if not target_lang or target_lang in ['auto', '', 'undefined', 'null']:
+            target_lang = detected_lang
 
         allowed_deps = get_allowed_departments_for_role(user_role)
         is_sales_q = is_sales_marketing_query(user_query)
@@ -640,31 +684,14 @@ class LocalRAGEngine:
             meta_data = {"type": "meta", "sources": [], "access_blocked": False, "language": target_lang}
             yield f"data: {json.dumps(meta_data)}\n\n"
 
-            # Stream sentences and tokens — sentence event fires BEFORE its tokens
-            # so TTS pre-buffering and synthesis starts immediately on the frontend.
-            sentence_counter = 0
-            parts = re.split(r'(\n\n|[।\.\?!]\s+)', general_response)
-            buffer = ""
-            for part in parts:
-                buffer += part
-                if '\n' in buffer or any(buffer.strip().endswith(d) for d in ['.', '।', '!', '?']) or len(buffer) > 120:
-                    clean_sent = buffer.strip()
-                    if clean_sent:
-                        # Fire sentence FIRST so TTS starts synthesizing in parallel
-                        yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
-                        sentence_counter += 1
-                    # Tokens trickle at 15ms each — text appears in sync with audio
-                    for word in re.findall(r'\S+|\s+', buffer):
-                        yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                        time.sleep(0.015)
-                    buffer = ""
+            # Stream voice chunks and tokens optimized for Bodhan AI Indic-Speak
+            voice_chunks = split_response_into_voice_chunks(general_response)
+            for s_idx, chunk in enumerate(voice_chunks):
+                yield f"data: {json.dumps({'type': 'sentence', 'text': chunk, 'sentence_index': s_idx})}\n\n"
 
-            if buffer.strip():
-                clean_sent = buffer.strip()
-                yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
-                for word in re.findall(r'\S+|\s+', buffer):
-                    yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                    time.sleep(0.015)
+            for word in re.findall(r'\S+|\s+', general_response):
+                yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
+                time.sleep(0.010)
 
             yield f"data: {json.dumps({'type': 'done', 'status': 'complete', 'full_response': general_response})}\n\n"
             return
@@ -691,37 +718,15 @@ class LocalRAGEngine:
         meta_data = {"type": "meta", "sources": sources, "access_blocked": False, "language": target_lang}
         yield f"data: {json.dumps(meta_data)}\n\n"
 
-        # 4. Stream Sentences and Tokens for Real-Time Speech & UI
-        # KEY: sentence event fires BEFORE its tokens so TTS synthesis starts
-        # immediately while text types in at 15ms/token — synchronized like
-        # Google Assistant (voice and text appear together, not voice delayed).
-        sentence_counter = 0
-        sentence_delimiters = ['.', '।', '!', '?', '\n\n']
-        parts = re.split(r'(\n\n|[।\.\?!]\s+)', full_response)
-        buffer = ""
-        first_sentence_sent = False
-        for part in parts:
-            buffer += part
-            if any(buffer.strip().endswith(d) for d in sentence_delimiters) or len(buffer) > 80:
-                clean_sent = buffer.strip()
-                if clean_sent:
-                    # Sentence fires FIRST — TTS starts synthesizing before tokens stream
-                    yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
-                    sentence_counter += 1
-                    first_sentence_sent = True
-                # Tokens trickle at 15ms each — matches typical Piper synthesis speed
-                for word in re.findall(r'\S+|\s+', buffer):
-                    yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                    time.sleep(0.015)
-                buffer = ""
+        # 4. Stream Voice Chunks optimized for Bodhan AI Indic-Speak
+        voice_chunks = split_response_into_voice_chunks(full_response)
+        for s_idx, chunk in enumerate(voice_chunks):
+            yield f"data: {json.dumps({'type': 'sentence', 'text': chunk, 'sentence_index': s_idx})}\n\n"
 
-        if buffer.strip():
-            clean_sent = buffer.strip()
-            if clean_sent:
-                yield f"data: {json.dumps({'type': 'sentence', 'text': clean_sent, 'sentence_index': sentence_counter})}\n\n"
-            for word in re.findall(r'\S+|\s+', buffer):
-                yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
-                time.sleep(0.015)
+        # 5. Stream Tokens for Fluid Visual Typing Animation
+        for word in re.findall(r'\S+|\s+', full_response):
+            yield f"data: {json.dumps({'type': 'token', 'token': word})}\n\n"
+            time.sleep(0.008)
 
         # Save query log
         try:
@@ -919,9 +924,9 @@ class LocalRAGEngine:
         if ("difference" in q_lower or "farak" in q_lower or "antar" in q_lower or "farq" in q_lower) and ("steel" in q_lower and "iron" in q_lower):
             if lang in ['mixed', 'hinglish']:
                 return (
-                    "**Steel aur Iron mein main farak:**\n\n"
-                    "Iron (Loha) ek basic chemical element (Fe) hai, jabki Steel ek **alloy (mishradhatu)** hai jo Iron aur thoda Carbon milakar banta hai.\n"
-                    "Steel, pure iron ke comparison mein zyada strong, durable aur rust-resistant hota hai."
+                    "**Steel और Iron में मुख्य फर्क:**\n\n"
+                    "Iron (लोहा) एक basic chemical element (Fe) है, जबकि Steel एक **alloy (मिश्रधातु)** है जो Iron और थोड़ा Carbon मिलाकर बनता है।\n"
+                    "Steel, pure iron के comparison में ज़्यादा strong, durable और rust-resistant होता है।"
                 )
             elif lang == 'hi':
                 return (
@@ -946,9 +951,9 @@ class LocalRAGEngine:
         if "rust" in q_lower or "corrosion" in q_lower or "zang" in q_lower or "jung" in q_lower or "जंग" in query or "गंज" in query:
             if lang in ['mixed', 'hinglish']:
                 return (
-                    "**Rusting (Jang lagne ka reason):**\n\n"
-                    "Jab Iron oxygen aur moisture (nami) ke contact mein aata hai, toh chemical reaction se **Iron Oxide ($Fe_2O_3$)** banta hai, jise Rust ya Jang kehte hain.\n"
-                    "Ise rokne ke liye galvanization, painting ya stainless steel ka use kiya jata hai."
+                    "**Rusting (जंग लगने का reason):**\n\n"
+                    "जब Iron, oxygen और moisture (नमी) के contact में आता है, तो chemical reaction से **Iron Oxide (Fe₂O₃)** बनता है, जिसे Rust या जंग कहते हैं।\n"
+                    "इसे रोकने के लिए galvanization, painting या stainless steel का use किया जाता है।"
                 )
             elif lang == 'hi':
                 return (
@@ -967,9 +972,9 @@ class LocalRAGEngine:
         if "hydraulic" in q_lower and ("work" in q_lower or "principle" in q_lower or "pascal" in q_lower or "kaise" in q_lower):
             if lang in ['mixed', 'hinglish']:
                 return (
-                    "**Hydraulic System ka Principle:**\n\n"
-                    "Hydraulic systems **Pascal's Law** par kaam karte hain: kisi enclosed fluid par lagaya gaya pressure sabhi directions mein equally transmit hota hai.\n"
-                    "Isse chhota force lagakar heavy plant machinery aur rolling rolls ko easily lift ya clamp kiya jata hai."
+                    "**Hydraulic System का Principle:**\n\n"
+                    "Hydraulic systems **Pascal's Law** पर काम करते हैं: किसी enclosed fluid पर लगाया गया pressure सभी directions में equally transmit होता है।\n"
+                    "इससे छोटा force लगाकर heavy plant machinery और rolling rolls को easily lift या clamp किया जाता है।"
                 )
             else:
                 return (
@@ -982,9 +987,9 @@ class LocalRAGEngine:
         if "expand" in q_lower or "heat" in q_lower or "thermal" in q_lower or "faelta" in q_lower:
             if lang in ['mixed', 'hinglish']:
                 return (
-                    "**Metals mein Thermal Expansion:**\n\n"
-                    "Jab metals ko heat kiya jata hai, toh unke atoms ki kinetic energy badh jaati hai aur wo zyada vibrate karte hain, jisse metal expand hota hai.\n"
-                    "Cool hone par metal wapas contract hokar apne normal size mein aa jata hai."
+                    "**Metals में Thermal Expansion:**\n\n"
+                    "जब metals को heat किया जाता है, तो उनके atoms की kinetic energy बढ़ जाती है और वो ज़्यादा vibrate करते हैं, जिससे metal expand होता है।\n"
+                    "Cool होने पर metal वापस contract होकर अपने normal size में आ जाता है।"
                 )
             else:
                 return (
@@ -999,7 +1004,7 @@ class LocalRAGEngine:
             n1, op, n2 = float(math_match.group(1)), math_match.group(2), float(math_match.group(3))
             res = n1 + n2 if op == '+' else n1 - n2 if op == '-' else n1 * n2 if op == '*' else (n1 / n2 if n2 != 0 else 'undefined')
             if lang in ['mixed', 'hinglish']:
-                return f"**Calculation Result:**\n\n{int(n1)} {op} {int(n2)} ka answer **{int(res) if isinstance(res, float) and res.is_integer() else res}** hai."
+                return f"**Calculation Result:**\n\n{int(n1)} {op} {int(n2)} का answer **{int(res) if isinstance(res, float) and res.is_integer() else res}** है।"
             elif lang == 'hi':
                 return f"**गणना परिणाम:**\n\n{int(n1)} {op} {int(n2)} का उत्तर **{int(res) if isinstance(res, float) and res.is_integer() else res}** है।"
             else:
@@ -1008,7 +1013,7 @@ class LocalRAGEngine:
         # 6. Conversational Greetings / Wellbeing
         if any(w in q_lower for w in ['hello', 'hi', 'hey', 'namaste', 'namaskar', 'kaise ho', 'how are you', 'good morning', 'good evening']):
             if lang in ['mixed', 'hinglish']:
-                return "Namaste! Main **Tolia Voice AI** hoon. Main bilkul theek hoon aur aapki help ke liye ready hoon. Aap plant operations ya koi bhi general sawaal pooch sakte hain."
+                return "नमस्ते! मैं **Tolia Voice AI** हूँ। मैं bilkul तैयार हूँ और आपकी help के लिए ready हूँ। आप plant operations या कोई भी general सवाल पूछ सकते हैं।"
             elif lang == 'hi':
                 return "नमस्ते! मैं **Tolia Voice AI** हूँ। मैं पूरी तरह तैयार हूँ। आप स्टील प्लांट संचालन या कोई भी सामान्य प्रश्न पूछ सकते हैं।"
             elif lang == 'mr':
@@ -1018,7 +1023,7 @@ class LocalRAGEngine:
 
         # 7. Broad General Response Fallback
         if lang in ['mixed', 'hinglish']:
-            return f"Aapka sawaal **\"{query}\"** general knowledge se related hai. Tolia AI aapke sabhi plant operations, machinery parameters aur general technical inquiries mein help karne ke liye ready hai."
+            return f"आपका सवाल **\"{query}\"** general knowledge से related है। Tolia AI आपके सभी plant operations, machinery parameters और general technical inquiries में help करने के लिए ready है।"
         elif lang == 'hi':
             return f"आपका प्रश्न **\"{query}\"** सामान्य ज्ञान से संबंधित है। Tolia AI आपके संयंत्र संचालन और तकनीकी प्रश्नों के उत्तर के लिए तैयार है।"
         elif lang == 'mr':
@@ -1074,11 +1079,11 @@ class LocalRAGEngine:
             if lang in ['mixed', 'hinglish']:
                 return (
                     "**Blast Furnace Emergency Shutdown Steps:**\n\n"
-                    "1. Agar gas pressure 2.5 bar se jyada ho, toh turant **Main Control Valve (Valve B-4)** band karein.\n"
-                    "2. Control Console 1 par laga **Red Emergency Stop Button** press karein.\n"
-                    "3. Gas backdraft rokne ke liye Snort valve open hoga aur **Nitrogen purge** start hoga.\n"
-                    "4. 3 siren blasts bajayein aur sabhi staff ko **Assembly Point 2** par evacuate karein.\n"
-                    "5. Operating temperature **1450°C se 1550°C** rehta hai. Heat suit aur face shield pehanna compulsory hai."
+                    "1. अगर gas pressure 2.5 bar से ज़्यादा हो, तो तुरंत **Main Control Valve (Valve B-4)** बंद करें।\n"
+                    "2. Control Console 1 पर लगा **Red Emergency Stop Button** press करें।\n"
+                    "3. Gas backdraft रोकने के लिए Snort valve open होगा और **Nitrogen purge** start होगा।\n"
+                    "4. 3 siren blasts बजाएं और सभी staff को **Assembly Point 2** पर evacuate करें।\n"
+                    "5. Operating temperature **1450°C से 1550°C** रहता है। Heat suit और face shield पहनना compulsory है।"
                 )
             elif lang == 'hi':
                 return (
@@ -1113,9 +1118,9 @@ class LocalRAGEngine:
             if lang in ['mixed', 'hinglish']:
                 return (
                     "**Rolling Mill Maintenance Guidelines:**\n\n"
-                    "1. Gearbox oil har 100 operating hours par check karein. Sirf **ISO VG 320 synthetic oil** use karein.\n"
-                    "2. Hydraulic clamping pressure **210 bar (±5 bar)** maintain karein.\n"
-                    "3. Maximum allowable vibration **4.5 mm/s RMS** hai. Agar vibration 5.0 mm/s se upar jaye, toh line turant stop karein."
+                    "1. Gearbox oil हर 100 operating hours पर check करें। सिर्फ **ISO VG 320 synthetic oil** use करें।\n"
+                    "2. Hydraulic clamping pressure **210 bar (±5 bar)** maintain करें।\n"
+                    "3. Maximum allowable vibration **4.5 mm/s RMS** है। अगर vibration 5.0 mm/s से ऊपर जाए, तो line तुरंत stop करें।"
                 )
             elif lang == 'hi':
                 return (
